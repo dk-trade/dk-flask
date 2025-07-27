@@ -3,59 +3,67 @@
 
 <head>
     <meta charset="UTF-8" />
-    <title>Covered‑Call Helper</title>
+    <title>Options-Strategy Helper · Choose Strategy</title>
+
+    <!-- shared styles -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 
-    <!-- JS bundles (served from /static/js) -->
-    <script src="{{ url_for('static', filename='js/calculator.js') }}" defer></script>
-    <script src="{{ url_for('static', filename='js/results_ui.js') }}" defer></script>
-    <script src="{{ url_for('static', filename='js/ui.js') }}" defer></script>
+    <style>
+        /* minimal extra styling for the landing cards */
+        .landing-wrap {
+            max-width: 620px;
+            margin: 40px auto;
+            display: grid;
+            gap: 30px;
+        }
+
+        .strategy-card {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 30px 20px;
+            border: 2px solid #2c3e50;
+            border-radius: 12px;
+            text-align: center;
+            text-decoration: none;
+            color: inherit;
+            transition: background 0.15s ease;
+        }
+
+        .strategy-card:hover {
+            background: #f5f7fa;
+        }
+
+        .strategy-card h2 {
+            margin: 0 0 10px;
+        }
+
+        .strategy-card p {
+            margin: 0;
+            font-size: 0.95rem;
+            opacity: 0.8;
+        }
+    </style>
 </head>
 
 <body>
-    <h1 class="title">Covered‑Call Helper</h1>
+    <h1 class="title">Options-Strategy Helper</h1>
+    <p style="text-align:center;max-width:600px;margin:0 auto 35px;">
+        Select the strategy you’d like to analyse. No Schwab credentials ever leave
+        your machine – everything runs locally.
+    </p>
 
-    <!-- Main form: user picks symbols + filters; NO credentials -->
-    <form id="tradeForm" class="form">
-        <!-- Stock inputs will be injected by ui.js -->
-        <div class="form-group range-group">
-            <label>Strike‑%:</label>
-            <div class="range-container">
-                <div class="range-slider" data-slider="strike">
-                    <div class="range-track">
-                        <div class="range-selected"></div>
-                        <div class="thumb thumb-min"></div>
-                        <div class="thumb thumb-max"></div>
-                    </div>
-                    <div class="range-display">30% - 80%</div>
-                </div>
-                <input type="hidden" id="minStrike" value="30">
-                <input type="hidden" id="maxStrike" value="80">
-            </div>
-        </div>
+    <div class="landing-wrap">
+        <a class="strategy-card" href="{{ url_for('covered_call_page') }}">
+            <h2>Covered-Call</h2>
+            <p>Sell covered calls on shares you already hold. Filters for strike %, DTE & more.</p>
+        </a>
 
-        <div class="form-group range-group">
-            <label>DTE Range:</label>
-            <div class="range-container">
-                <div class="range-slider" data-slider="dte">
-                    <div class="range-track">
-                        <div class="range-selected"></div>
-                        <div class="thumb thumb-min"></div>
-                        <div class="thumb thumb-max"></div>
-                    </div>
-                    <div class="range-display">1 - 45 days</div>
-                </div>
-                <input type="hidden" id="minDte" value="1">
-                <input type="hidden" id="maxDte" value="45">
-            </div>
-        </div>
-
-        <button type="submit" class="submit-btn">Fetch &amp; Calculate</button>
-    </form>
-
-    <div id="message" class="message"></div>
-    <div id="toggleContainer" style="display:none;text-align:center;margin-bottom:10px;"></div>
-    <div id="resultsContainer" class="results-container"></div>
+        <a class="strategy-card" href="{{ url_for('collar_page') }}">
+            <h2>Collar</h2>
+            <p>Buy a protective put and sell a call – see only collars with positive net profit.</p>
+        </a>
+    </div>
 </body>
 
 </html>

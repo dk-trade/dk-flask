@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Covered-Call Helper</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <!-- JS bundles -->
+    <script src="{{ url_for('static', filename='js/calculator.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='js/results_ui.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='js/ui.js') }}" defer></script>
+</head>
+
+<body>
+    <!-- back-link to main landing page -->
+    <a href="{{ url_for('root') }}" class="back-link">&#8592; Strategy menu</a>
+
+    <h1 class="title">Covered-Call Helper</h1>
+
+    <!-- Main form: user picks symbols + filters -->
+    <form id="tradeForm" class="form">
+        <!-- Stock inputs injected by ui.js -->
+
+        <!-- Strike-% range -->
+        <div class="form-group range-group">
+            <label>Strike-%:</label>
+            <div class="range-container">
+                <div class="range-slider" data-slider="strike">
+                    <div class="range-track">
+                        <div class="range-selected"></div>
+                        <div class="thumb thumb-min"></div>
+                        <div class="thumb thumb-max"></div>
+                    </div>
+                    <div class="range-display">30% - 80%</div>
+                </div>
+                <input type="hidden" id="minStrike" value="30">
+                <input type="hidden" id="maxStrike" value="80">
+            </div>
+        </div>
+
+        <!-- DTE range -->
+        <div class="form-group range-group">
+            <label>DTE Range:</label>
+            <div class="range-container">
+                <div class="range-slider" data-slider="dte">
+                    <div class="range-track">
+                        <div class="range-selected"></div>
+                        <div class="thumb thumb-min"></div>
+                        <div class="thumb thumb-max"></div>
+                    </div>
+                    <div class="range-display">1 - 45 days</div>
+                </div>
+                <input type="hidden" id="minDte" value="1">
+                <input type="hidden" id="maxDte" value="45">
+            </div>
+        </div>
+
+        <button type="submit" class="submit-btn">Fetch &amp; Calculate</button>
+    </form>
+
+    <div id="message" class="message"></div>
+    <div id="toggleContainer" style="display:none;text-align:center;margin-bottom:10px;"></div>
+    <div id="resultsContainer" class="results-container"></div>
+</body>
+
+</html>

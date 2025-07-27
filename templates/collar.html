@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Collar Strategy Helper</title>
+
+    <!-- shared styles -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+
+    <!-- collar-specific JS bundles -->
+    <script src="{{ url_for('static', filename='js/calculator_collar.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='js/results_ui_collar.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='js/ui_collar.js') }}" defer></script>
+</head>
+
+<body style="background-color: black;">
+    <!-- back-link to landing page -->
+    <a href="{{ url_for('root') }}" class="back-link">&#8592; Strategy menu</a>
+
+    <h1 class="title">Collar Strategy Helper</h1>
+
+    <!-- Main form – stock inputs injected by ui_collar.js -->
+    <form id="tradeForm" class="form">
+        <!-- Strike-% range (default 75–80%) -->
+        <div class="form-group range-group">
+            <label>Strike-%:</label>
+            <div class="range-container">
+                <div class="range-slider" data-slider="strike">
+                    <div class="range-track">
+                        <div class="range-selected"></div>
+                        <div class="thumb thumb-min"></div>
+                        <div class="thumb thumb-max"></div>
+                    </div>
+                    <div class="range-display">75% – 80%</div>
+                </div>
+                <input type="hidden" id="minStrike" value="75">
+                <input type="hidden" id="maxStrike" value="80">
+            </div>
+        </div>
+
+        <!-- DTE range (default 29–45 days) -->
+        <div class="form-group range-group">
+            <label>DTE Range:</label>
+            <div class="range-container">
+                <div class="range-slider" data-slider="dte">
+                    <div class="range-track">
+                        <div class="range-selected"></div>
+                        <div class="thumb thumb-min"></div>
+                        <div class="thumb thumb-max"></div>
+                    </div>
+                    <div class="range-display">29 – 45 days</div>
+                </div>
+                <input type="hidden" id="minDte" value="29">
+                <input type="hidden" id="maxDte" value="45">
+            </div>
+        </div>
+
+        <button type="submit" class="submit-btn">Fetch &amp; Calculate</button>
+    </form>
+
+    <div id="message" class="message"></div>
+
+    <!-- call/put price sliders injected by JS -->
+    <div id="marketPriceOptions" class="market-price-options" style="display:none;"></div>
+
+    <div id="resultsContainer" class="results-container"></div>
+</body>
+
+</html>

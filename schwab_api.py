@@ -1,29 +1,24 @@
 from __future__ import annotations
 
-"""schwab_api.py – Thin wrapper around Schwab OAuth and option‑chain endpoints.
+"""
+schwab_api.py – Thin wrapper around Schwab OAuth and option-chain endpoints.
 
-This file **never** exposes credentials to the caller.  All token handling is
-internal.  Public surface consists of:
+Now supports **two** strategies:
 
-* ``SchwabAPI.fetch_options_data(...)`` – Bulk fetch and filtering helper that
-  matches the original JS logic.
+* Covered-Call   → ``fetch_options_data()``
+* Collar         → ``fetch_collar_data()``
 
-Raise ``SchwabAPIError`` on any recoverable problem so the Flask route can
-convert it to a proper HTTP response.
+All credential handling remains internal; callers only get filtered JSON-ready
+records or a ``SchwabAPIError`` on failure.
 """
 
 import base64
 import datetime as _dt
-import os
 from typing import Any, Dict, List, Tuple
 
 import requests
-from dotenv import load_dotenv
 
-__all__ = [
-    "SchwabAPI",
-    "SchwabAPIError",
-]
+__all__ = ["SchwabAPI", "SchwabAPIError"]
 
 
 class SchwabAPIError(RuntimeError):
@@ -35,6 +30,10 @@ class SchwabAPI:
     QUOTES_URL = "https://api.schwabapi.com/marketdata/v1/quotes"
     CHAINS_URL = "https://api.schwabapi.com/marketdata/v1/chains"
 
+    # ------------------------------------------------------------------#
+    # Construction & token management (unchanged)                       #
+    # ------------------------------------------------------------------#
+
     def __init__(self, *, client_id: str, client_secret: str, refresh_token: str) -> None:
         self._client_id = client_id
         self._client_secret = client_secret
@@ -43,14 +42,12 @@ class SchwabAPI:
         self._access_token: str | None = None
         self._token_expiry: _dt.datetime | None = None
 
-        # Lazily refresh when first needed – avoids network hit on app start.
-
-    # ---------------------------------------------------------------------
-    # Token management
-    # ---------------------------------------------------------------------
-
     def _valid_access_token(self) -> str:
-        if self._access_token and self._token_expiry and _dt.datetime.utcnow() < self._token_expiry - _dt.timedelta(seconds=60):
+        if (
+            self._access_token
+            and self._token_expiry
+            and _dt.datetime.utcnow() < self._token_expiry - _dt.timedelta(seconds=60)
+        ):
             return self._access_token
         return self._refresh_access_token()
 
@@ -72,21 +69,22 @@ class SchwabAPI:
             timeout=30,
         )
         if resp.status_code != 200:
-            raise SchwabAPIError(f"Token refresh failed: {resp.status_code} {resp.text}")
+            raise SchwabAPIError(
+                f"Token refresh failed: {resp.status_code} {resp.text}"
+            )
 
         payload = resp.json()
         self._access_token = payload["access_token"]
         expires_in = int(payload.get("expires_in", 1800))
         self._token_expiry = _dt.datetime.utcnow() + _dt.timedelta(seconds=expires_in)
+        # Handle refresh-token rotation
         if "refresh_token" in payload:
-            # In practice Schwab _can_ rotate refresh tokens – store the new one so
-            # the next run still works (optional persistence).
             self._refresh_token = payload["refresh_token"]
         return self._access_token
 
-    # ---------------------------------------------------------------------
-    # Public helpers
-    # ---------------------------------------------------------------------
+    # ------------------------------------------------------------------#
+    # Covered-call (existing)                                            #
+    # ------------------------------------------------------------------#
 
     def fetch_options_data(
         self,
@@ -97,34 +95,66 @@ class SchwabAPI:
         min_dte: int,
         max_dte: int,
     ) -> Tuple[List[Dict[str, Any]], int]:
-        """Return list of eligible option records and number of upstream API calls."""
-
+        """Covered-call helper (unchanged)."""
         records: List[Dict[str, Any]] = []
         api_calls = 0
-        for symbol in symbols:
+        for sym in symbols:
+            recs, calls = self._fetch_stock_options(
+                symbol=sym,
+                min_strike_pct=min_strike_pct,
+                max_strike_pct=max_strike_pct,
+                min_dte=min_dte,
+                max_dte=max_dte,
+            )
+            records.extend(recs)
+            api_calls += calls
+        return records, api_calls
+
+    # ------------------------------------------------------------------#
+    # NEW – Collar strategy                                             #
+    # ------------------------------------------------------------------#
+
+    def fetch_collar_data(
+        self,
+        *,
+        symbols: List[str],
+        min_strike_pct: int,
+        max_strike_pct: int,
+        min_dte: int,
+        max_dte: int,
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """
+        Return profitable **collar** opportunities for the requested symbols.
+
+        A record is included only if the calculated `collar` (profit)
+        is **positive**.
+        """
+        records: List[Dict[str, Any]] = []
+        api_calls = 0
+
+        for sym in symbols:
             try:
-                symbol_records, symbol_calls = self._fetch_stock_options(
-                    symbol=symbol,
+                recs, calls = self._fetch_stock_collar(
+                    symbol=sym,
                     min_strike_pct=min_strike_pct,
                     max_strike_pct=max_strike_pct,
                     min_dte=min_dte,
                     max_dte=max_dte,
                 )
-                records.extend(symbol_records)
-                api_calls += symbol_calls
+                records.extend(recs)
+                api_calls += calls
             except SchwabAPIError:
-                raise  # bubble up – caller decides how to handle
-            except Exception as exc:
-                # Non‑API exception; wrap so caller has consistent handling.
-                raise SchwabAPIError(f"Error processing {symbol}: {exc}") from exc
+                raise
+            except Exception as exc:  # pragma: no cover
+                raise SchwabAPIError(f"Error processing {sym}: {exc}") from exc
 
         return records, api_calls
 
-    # ------------------------------------------------------------------
-    # Internal per‑symbol logic (mirrors original JS)
-    # ------------------------------------------------------------------
+    # ------------------------------------------------------------------#
+    # Internal helpers – per-symbol collar logic                        #
+    # ------------------------------------------------------------------#
 
-    def _fetch_stock_options(
+    def _fetch_stock_collar(
         self,
         *,
         symbol: str,
@@ -133,113 +163,148 @@ class SchwabAPI:
         min_dte: int,
         max_dte: int,
     ) -> Tuple[List[Dict[str, Any]], int]:
+        """Return profitable collar records for a single underlying."""
         records: List[Dict[str, Any]] = []
         api_calls = 0
 
-        headers = self._auth_headers(json_req=True)
-
-        # 1) Quote -----------------------------------------------------------
+        # ------------------ 1) Quote -----------------------------------#
         quote_resp = requests.post(
             self.QUOTES_URL,
-            headers=headers,
+            headers=self._auth_headers(json_req=True),
             json={"symbols": [symbol]},
             timeout=30,
         )
         api_calls += 1
         if quote_resp.status_code != 200:
-            raise SchwabAPIError(f"Quote fetch failed for {symbol}: {quote_resp.status_code}")
+            raise SchwabAPIError(
+                f"Quote fetch failed for {symbol}: {quote_resp.status_code}"
+            )
 
         quote_json = quote_resp.json()
-        if symbol not in quote_json:
+        if symbol not in quote_json or "quote" not in quote_json[symbol]:
             raise SchwabAPIError(f"No quote data returned for {symbol}")
 
-        quote_data = quote_json[symbol]["quote"]
-        price = quote_data.get("lastPrice") or quote_data.get("mark")
-        if price is None:
-            raise SchwabAPIError(f"No price available for {symbol}")
+        price = quote_json[symbol]["quote"].get("lastPrice") or quote_json[symbol][
+            "quote"
+        ].get("mark")
+        if not price or price <= 0:
+            raise SchwabAPIError(f"Invalid price for {symbol}")
 
-        # 2) Date range for option chain -------------------------------------
+        # Strike boundaries
+        min_strike = int(price * (min_strike_pct / 100))
+        max_strike = int(price * (max_strike_pct / 100))
+
+        # ------------------ 2) Chains ----------------------------------#
         today = _dt.date.today()
         from_date = today + _dt.timedelta(days=min_dte)
         to_date = today + _dt.timedelta(days=max_dte)
 
-        # 3) Option chain -----------------------------------------------------
-        chain_params = {
+        params = {
             "symbol": symbol,
-            "contractType": "CALL",
+            "contractType": "ALL",  # need calls & puts
             "fromDate": from_date.isoformat(),
             "toDate": to_date.isoformat(),
         }
-        chain_headers = self._auth_headers(json_req=False)
-        chain_resp = requests.get(self.CHAINS_URL, params=chain_params, headers=chain_headers, timeout=30)
+        chain_resp = requests.get(
+            self.CHAINS_URL,
+            params=params,
+            headers=self._auth_headers(json_req=False),
+            timeout=30,
+        )
         api_calls += 1
         if chain_resp.status_code != 200:
-            raise SchwabAPIError(f"Chain fetch failed for {symbol}: {chain_resp.status_code}")
+            raise SchwabAPIError(
+                f"Chain fetch failed for {symbol}: {chain_resp.status_code}"
+            )
 
         chain_json = chain_resp.json()
-        exp_map = chain_json.get("callExpDateMap", {})
+        call_map = chain_json.get("callExpDateMap", {})
+        put_map = chain_json.get("putExpDateMap", {})
 
-        min_strike = int(price * (min_strike_pct / 100))
-        max_strike = int(price * (max_strike_pct / 100))
+        # Iterate over expirations present in **both** maps
+        for exp_key, call_strikes in call_map.items():
+            put_strikes = put_map.get(exp_key)
+            if not put_strikes:
+                continue
 
-        for exp_key, strike_map in exp_map.items():
-            for strike_str, options_arr in strike_map.items():
+            for strike_str, call_opts in call_strikes.items():
+                if strike_str not in put_strikes:
+                    continue  # no matching put
+
                 strike = float(strike_str)
                 if strike < min_strike or strike > max_strike:
                     continue
-                for option in options_arr:
-                    dte = self._calculate_dte(option["expirationDate"])
-                    if dte < min_dte or dte > max_dte:
-                        continue
 
-                    bid = option.get("bid", 0) or 0
-                    ask = option.get("ask", 0) or 0
-                    if bid <= 0 or ask <= 0:
-                        continue
+                put_opts = put_strikes[strike_str]
+                if not call_opts or not put_opts:
+                    continue
 
-                    mid = (bid + ask) / 2
-                    metrics = self._calculate_metrics(price, strike, bid, ask, dte)
-                    if metrics["pctCall"] < 0 or metrics["annPctCall"] < 0:
-                        continue
+                call_opt = call_opts[0]
+                put_opt = put_opts[0]
 
-                    exp_ts = int(_dt.datetime.fromisoformat(option["expirationDate"]).timestamp())
-                    records.append({
+                dte = self._calculate_dte(call_opt["expirationDate"])
+                if dte < min_dte or dte > max_dte:
+                    continue
+
+                # Validate quotes
+                c_bid, c_ask = call_opt.get("bid", 0), call_opt.get("ask", 0)
+                p_bid, p_ask = put_opt.get("bid", 0), put_opt.get("ask", 0)
+                if min(c_bid, c_ask, p_bid, p_ask) <= 0 or c_ask < c_bid or p_ask < p_bid:
+                    continue
+
+                c_mid = (c_bid + c_ask) / 2
+                p_mid = (p_bid + p_ask) / 2
+
+                metrics = self._calculate_collar_metrics(
+                    price=price,
+                    strike=strike,
+                    call_mid=c_mid,
+                    put_mid=p_mid,
+                    dte=dte,
+                )
+                if metrics["collar"] <= 0:
+                    continue  # only profitable collars
+
+                exp_ts = int(
+                    _dt.datetime.fromisoformat(call_opt["expirationDate"]).timestamp()
+                )
+                records.append(
+                    {
                         "symbol": symbol,
                         "price": price,
                         "exp": exp_ts,
-                        "expDate": _dt.datetime.fromtimestamp(exp_ts).strftime("%d/%m/%Y"),
+                        "expDate": _dt.datetime.fromtimestamp(exp_ts).strftime(
+                            "%d/%m/%Y"
+                        ),
                         "dte": dte,
                         "strike": strike,
-                        "bid": bid,
-                        "ask": ask,
-                        "mid": mid,
-                        "priceStrikePct": 100 * (strike - price) / price,
-                        "metrics": metrics,
-                    })
+                        "strikePricePct": metrics["strikePricePct"],
+                        "callBid": c_bid,
+                        "callAsk": c_ask,
+                        "callMid": c_mid,
+                        "putBid": p_bid,
+                        "putAsk": p_ask,
+                        "putMid": p_mid,
+                        **metrics,
+                    }
+                )
 
         return records, api_calls
 
-    # ------------------------------------------------------------------
-    # Utility helpers
-    # ------------------------------------------------------------------
-
-    def _auth_headers(self, *, json_req: bool) -> dict[str, str]:
-        headers = {
-            "Authorization": f"Bearer {self._valid_access_token()}",
-            "Accept": "application/json",
-        }
-        if json_req:
-            headers["Content-Type"] = "application/json"
-        return headers
+    # ------------------------------------------------------------------#
+    # Metric helpers                                                    #
+    # ------------------------------------------------------------------#
 
     @staticmethod
     def _calculate_dte(expiration_iso: str) -> int:
-        """Return *calendar* days until expiration (inclusive of today)."""
         exp_date = _dt.datetime.fromisoformat(expiration_iso).date()
         return (exp_date - _dt.date.today()).days
 
     @staticmethod
-    def _calculate_metrics(price: float, strike: float, bid: float, ask: float, dte: int, pct: int = 50) -> Dict[str, float]:
+    def _calculate_metrics(
+        price: float, strike: float, bid: float, ask: float, dte: int, pct: int = 50
+    ) -> Dict[str, float]:
+        """(Covered-call – unchanged)"""
         call_price = bid + (pct / 100) * (ask - bid)
         cost = (price - call_price) * 100
         max_profit = (strike * 100) - cost
@@ -251,3 +316,43 @@ class SchwabAPI:
             "pctCall": pct_call,
             "annPctCall": ann_pct_call,
         }
+
+    # NEW ------------------------------------------------------------------#
+    @staticmethod
+    def _calculate_collar_metrics(
+        *, price: float, strike: float, call_mid: float, put_mid: float, dte: int
+    ) -> Dict[str, float]:
+        """
+        Collar metrics (all monetary values **per 100 shares**):
+
+        * netCost  – cash outlay to enter position
+        * collar   – max profit at expiration
+        * annReturn – annualised % return
+        * strikePricePct – strike/price ratio (%)
+        """
+        net_cost = (price - call_mid + put_mid) * 100
+        collar = (strike - price + call_mid - put_mid) * 100
+        ann_return = (
+            (collar / net_cost) * (365 / dte) * 100 if net_cost and dte else 0
+        )
+        strike_pct = (strike / price) * 100 if price else 0
+
+        return {
+            "netCost": net_cost,
+            "collar": collar,
+            "annReturn": ann_return,
+            "strikePricePct": strike_pct,
+        }
+
+    # ------------------------------------------------------------------#
+    # Shared helper                                                     #
+    # ------------------------------------------------------------------#
+
+    def _auth_headers(self, *, json_req: bool) -> Dict[str, str]:
+        hdrs = {
+            "Authorization": f"Bearer {self._valid_access_token()}",
+            "Accept": "application/json",
+        }
+        if json_req:
+            hdrs["Content-Type"] = "application/json"
+        return hdrs
