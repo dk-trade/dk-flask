@@ -99,7 +99,7 @@ class SchwabAPI:
         records: List[Dict[str, Any]] = []
         api_calls = 0
         for sym in symbols:
-            recs, calls = self._fetch_stock_options(
+            recs, calls = self._fetch_options_chain(
                 symbol=sym,
                 min_strike_pct=min_strike_pct,
                 max_strike_pct=max_strike_pct,
@@ -356,3 +356,92 @@ class SchwabAPI:
         if json_req:
             hdrs["Content-Type"] = "application/json"
         return hdrs
+
+
+    def _fetch_options_chain(
+        self,
+        *,
+        symbol: str,
+        min_strike_pct: int,
+        max_strike_pct: int,
+        min_dte: int,
+        max_dte: int,
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        records: List[Dict[str, Any]] = []
+        api_calls = 0
+
+        # Step 1: Fetch quote
+        quote_resp = requests.post(
+            self.QUOTES_URL,
+            headers=self._auth_headers(json_req=True),
+            json={"symbols": [symbol]},
+            timeout=30,
+        )
+        api_calls += 1
+        if quote_resp.status_code != 200:
+            raise SchwabAPIError(f"Quote fetch failed: {quote_resp.status_code}")
+        quote_data = quote_resp.json()
+        price = quote_data[symbol]["quote"].get("lastPrice") or quote_data[symbol]["quote"].get("mark")
+        if not price:
+            raise SchwabAPIError(f"No valid price for {symbol}")
+
+        # Step 2: Define strike boundaries
+        min_strike = int(price * (min_strike_pct / 100))
+        max_strike = int(price * (max_strike_pct / 100))
+
+        # Step 3: Fetch chain
+        today = _dt.date.today()
+        from_date = today + _dt.timedelta(days=min_dte)
+        to_date = today + _dt.timedelta(days=max_dte)
+
+        params = {
+            "symbol": symbol,
+            "contractType": "CALL",
+            "fromDate": from_date.isoformat(),
+            "toDate": to_date.isoformat(),
+        }
+
+        chain_resp = requests.get(
+            self.CHAINS_URL,
+            params=params,
+            headers=self._auth_headers(json_req=False),
+            timeout=30,
+        )
+        api_calls += 1
+        if chain_resp.status_code != 200:
+            raise SchwabAPIError(f"Chain fetch failed: {chain_resp.status_code}")
+        chain_data = chain_resp.json()
+
+        call_map = chain_data.get("callExpDateMap", {})
+        for exp_date, strike_map in call_map.items():
+            for strike_str, options in strike_map.items():
+                strike = float(strike_str)
+                if strike < min_strike or strike > max_strike:
+                    continue
+                option = options[0]
+                dte = self._calculate_dte(option["expirationDate"])
+                if dte < min_dte or dte > max_dte:
+                    continue
+                bid = option.get("bid", 0)
+                ask = option.get("ask", 0)
+                if bid <= 0 or ask <= 0:
+                    continue
+                mid = (bid + ask) / 2
+                metrics = self._calculate_metrics(price, strike, bid, ask, dte)
+                if metrics["pctCall"] < 0 or metrics["annPctCall"] < 0:
+                    continue
+                exp_ts = int(_dt.datetime.fromisoformat(option["expirationDate"]).timestamp())
+                records.append({
+                    "symbol": symbol,
+                    "price": price,
+                    "exp": exp_ts,
+                    "expDate": _dt.datetime.fromtimestamp(exp_ts).strftime("%d/%m/%Y"),
+                    "dte": dte,
+                    "strike": strike,
+                    "bid": bid,
+                    "ask": ask,
+                    "mid": mid,
+                    "priceStrikePct": 100 * (strike - price) / price,
+                    "metrics": metrics,
+                })
+        return records, api_calls
