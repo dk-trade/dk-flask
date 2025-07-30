@@ -757,3 +757,18 @@ body {
   background: linear-gradient(135deg, var(--gray-800), var(--gray-900));
   /* Re-apply header background */
 }
+
+.price-slider-group {
+  display: flex;
+  gap: 24px;
+  align-items: center;
+  justify-content: space-between;
+  margin: 24px auto;
+  max-width: 600px;
+}
+#callPriceSlider {
+  width: 40%;
+}
+#putPriceSlider {
+  width: 40%;
+}
