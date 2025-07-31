@@ -112,7 +112,7 @@
         suffix: "%", minInputId: "minStrike", maxInputId: "maxStrike"
       });
       initSlider("dte", {
-        min: 1, max: 365, startMin: 29, startMax: 45,
+        min: 1, max: 800, startMin: 29, startMax: 45,
         suffix: " days", minInputId: "minDte", maxInputId: "maxDte"
       });
     }

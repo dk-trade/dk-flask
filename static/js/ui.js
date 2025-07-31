@@ -26,7 +26,7 @@
         min: 0,
         max: 100,
         startMin: 30,
-        startMax: 80,
+        startMax: 60,
         suffix: "%",
         minInputId: "minStrike",
         maxInputId: "maxStrike",
@@ -34,9 +34,9 @@
   
       initSlider("dte", {
         min: 1,
-        max: 365,
-        startMin: 1,
-        startMax: 45,
+        max: 800,
+        startMin: 30,
+        startMax: 90,
         suffix: " days",
         minInputId: "minDte",
         maxInputId: "maxDte",
