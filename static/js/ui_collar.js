@@ -129,7 +129,9 @@
           <h3>Enter Stocks</h3>
           <div id="stockInputs">
             <div class="stock-input-row">
-              <input type="text" class="stock-input" maxlength="7" placeholder="e.g., AAPL" />
+
+              <input type="text" class="stock-input" list="symbolList" maxlength="7" placeholder="e.g., AAPL" />
+
               <label class="save-label" style="display:none;">
                 <input type="checkbox" class="save-stock-cb" /> Save
               </label>
@@ -179,7 +181,9 @@
         const row = document.createElement("div");
         row.className = "stock-input-row";
         row.innerHTML = `
-          <input type="text" class="stock-input" maxlength="7" placeholder="e.g., AAPL" />
+
+          <input type="text" class="stock-input" list="symbolList" maxlength="7" placeholder="e.g., AAPL" />
+
           <label class="save-label" style="display:none;"><input type="checkbox" class="save-stock-cb" /> Save</label>
           <button type="button" class="remove-input-btn">×</button>`;
         document.getElementById("stockInputs").appendChild(row);

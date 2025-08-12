@@ -62,7 +62,71 @@
             <h2>Collar</h2>
             <p>Buy a protective put and sell a call – see only collars with positive net profit.</p>
         </a>
+
+        <div class="token-refresh-section" style="margin-top: 40px; padding-top: 30px; border-top: 2px solid #ddd;">
+            <div style="text-align: center;">
+                <button id="refreshTokenBtn" class="refresh-token-btn"
+                    style="background: #e74c3c; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-size: 16px;">
+                    🔄 Refresh Token
+                </button>
+                <p style="font-size: 14px; color: #666; margin-top: 8px;">
+                    Generate a new refresh token for Schwab API access
+                </p>
+            </div>
+
+            <div id="tokenResult"
+                style="display: none; margin-top: 20px; padding: 20px; background: #f8f9fa; border-radius: 8px; border: 1px solid #ddd;">
+                <h3 style="color: #27ae60; margin-top: 0;">✅ New Refresh Token Generated</h3>
+                <p style="margin: 8px 0; font-weight: bold;">Update your .env file with this SCHWAB_REFRESH_TOKEN:</p>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <input type="text" id="newTokenInput" readonly
+                        style="flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-family: monospace; font-size: 12px;">
+                    <button id="copyTokenBtn"
+                        style="background: #3498db; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">
+                        📋 Copy
+                    </button>
+                </div>
+            </div>
+        </div>
     </div>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const refreshBtn = document.getElementById('refreshTokenBtn');
+            const tokenResult = document.getElementById('tokenResult');
+            const tokenInput = document.getElementById('newTokenInput');
+            const copyBtn = document.getElementById('copyTokenBtn');
+
+            // Check if we just completed token refresh
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('token_success') === '1') {
+                // Fetch the new token and display it
+                fetch('/get-new-token')
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.token) {
+                            tokenInput.value = data.token;
+                            tokenResult.style.display = 'block';
+                            refreshBtn.textContent = '🔄 Refresh Token Again';
+                        }
+                    });
+            }
+
+            // Handle refresh button click
+            refreshBtn.addEventListener('click', function () {
+                window.location.href = '/start-token-refresh';
+            });
+
+            // Handle copy button click
+            copyBtn.addEventListener('click', function () {
+                tokenInput.select();
+                document.execCommand('copy');
+                copyBtn.textContent = '✅ Copied!';
+                setTimeout(() => {
+                    copyBtn.textContent = '📋 Copy';
+                }, 2000);
+            });
+        });
+    </script>
 </body>
 
 </html>
