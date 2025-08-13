@@ -5,7 +5,6 @@ import base64  # if not already imported
 import requests
 import secrets
 import urllib.parse
-import threading
 
 """
 app.py – Flask entry-point for the secured local options-strategy helper.
@@ -154,9 +153,8 @@ def fetch_collar():
 
 
 # --------------------------------------------------------------------------- #
-# Local entry-point                                                           #
+# OAuth Token Refresh                                                         #
 # --------------------------------------------------------------------------- #
-
 
 
 @app.route("/start-token-refresh")
@@ -165,12 +163,12 @@ def start_token_refresh():
     global oauth_state
     oauth_state = secrets.token_urlsafe(16)
 
-    # Build authorization URL (redirect to main app port)
+    # Build authorization URL (HTTPS redirect URI like original working script)
     base_url = "https://api.schwabapi.com/v1/oauth/authorize"
     params = {
         "response_type": "code",
         "client_id": CLIENT_ID,
-        "redirect_uri": "http://127.0.0.1:8182/oauth-callback",  # Main app port
+        "redirect_uri": "https://127.0.0.1:8182/callback",  # Changed to HTTPS and /callback
         "scope": "marketdata.quote",
         "state": oauth_state,
     }
@@ -179,7 +177,7 @@ def start_token_refresh():
     return redirect(auth_url)
 
 
-@app.route("/oauth-callback")
+@app.route("/callback")  # Changed from /oauth-callback to /callback
 def oauth_callback():
     """Handle OAuth callback and exchange code for tokens."""
     global new_refresh_token
@@ -188,31 +186,49 @@ def oauth_callback():
     state = request.args.get("state")
     error = request.args.get("error")
 
+    print("From callback:")
+    print(f"Code: {code}")
+    print(f"State: {state}")
+    print("==============")
+
     if error:
         return f"OAuth error: {error}", 400
 
     if state != oauth_state:
         return "Invalid state. CSRF detected.", 400
 
-    # Exchange code for tokens
+    # Exchange code for tokens synchronously (not in thread)
+    success = exchange_code_for_token(code)
+    
+    if success:
+        # Redirect to main page with success parameter
+        return redirect(url_for("root") + "?token_success=1")
+    else:
+        return "Failed to exchange code for token. Please try again.", 500
+
+
+def exchange_code_for_token(code):
+    """Exchange authorization code for tokens (using original working method)."""
+    global new_refresh_token, schwab_api
+    
+    print("[*] Exchanging authorization code for tokens...")
+    token_url = "https://api.schwabapi.com/v1/oauth/token"
+
+    # Use the same auth method as the working original script
+    headers = {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Authorization": "Basic "
+        + requests.auth._basic_auth_str(CLIENT_ID, CLIENT_SECRET).split(" ")[1],
+    }
+
+    data = {
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": "https://127.0.0.1:8182/callback",  # Match the redirect URI
+    }
+
     try:
-        token_url = "https://api.schwabapi.com/v1/oauth/token"
-
-        creds = f"{CLIENT_ID}:{CLIENT_SECRET}"
-        auth_header = base64.b64encode(creds.encode()).decode()
-
-        headers = {
-            "Content-Type": "application/x-www-form-urlencoded",
-            "Authorization": f"Basic {auth_header}",
-        }
-
-        data = {
-            "grant_type": "authorization_code",
-            "code": code,
-            "redirect_uri": "http://127.0.0.1:8182/oauth-callback",
-        }
-
-        response = requests.post(token_url, headers=headers, data=data, timeout=30)
+        response = requests.post(token_url, headers=headers, data=data, verify=True, timeout=30)
 
         if response.status_code == 200:
             token_data = response.json()
@@ -223,16 +239,62 @@ def oauth_callback():
             print("NEW REFRESH TOKEN OBTAINED:")
             print(f"SCHWAB_REFRESH_TOKEN={new_refresh_token}")
             print(f"{'='*50}\n")
+            print("[✔] Token response:")
+            print(token_data)
 
-            return redirect(url_for("root") + "?token_success=1")
+            # Auto-update .env file
+            update_env_file(new_refresh_token)
+            
+            # Update the SchwabAPI instance with new token
+            schwab_api.refresh_token = new_refresh_token
+            
+            return True
+
         else:
-            print(f"Token exchange failed: {response.status_code}")
+            print(f"[✘] Failed to get token: {response.status_code}")
             print(response.text)
-            return f"Token exchange failed: {response.status_code}", 400
+            return False
 
     except Exception as e:
         print(f"Error during token exchange: {e}")
-        return f"Error during token exchange: {e}", 500
+        return False
+
+
+def update_env_file(new_token):
+    """Update the .env file with the new refresh token."""
+    try:
+        env_path = Path(".env")
+        if env_path.exists():
+            # Read current .env content
+            with open(env_path, 'r') as f:
+                lines = f.readlines()
+            
+            # Update the SCHWAB_REFRESH_TOKEN line
+            updated = False
+            for i, line in enumerate(lines):
+                if line.strip().startswith('SCHWAB_REFRESH_TOKEN='):
+                    lines[i] = f'SCHWAB_REFRESH_TOKEN="{new_token}"\n'  # Added quotes
+                    updated = True
+                    break
+            
+            # If not found, append it
+            if not updated:
+                lines.append(f'SCHWAB_REFRESH_TOKEN="{new_token}"\n')  # Added quotes
+            
+            # Write back to .env
+            with open(env_path, 'w') as f:
+                f.writelines(lines)
+            
+            print(f"[✔] Updated .env file with new refresh token")
+            
+        else:
+            print(f"[!] .env file not found, creating new one")
+            with open(env_path, 'w') as f:
+                f.write(f'SCHWAB_REFRESH_TOKEN="{new_token}"\n')  # Added quotes
+                
+    except Exception as e:
+        print(f"[✘] Failed to update .env file: {e}")
+        print(f"[!] Please manually update SCHWAB_REFRESH_TOKEN=\"{new_token}\"")
 
 
 @app.route("/get-new-token")
@@ -244,9 +306,14 @@ def get_new_token():
     return jsonify({"token": None})
 
 
+# --------------------------------------------------------------------------- #
+# Local entry-point                                                           #
+# --------------------------------------------------------------------------- #
+
+
 if __name__ == "__main__":
+    # Always open browser (remove IS_DEV check)
+    webbrowser.open("https://127.0.0.1:8182")
 
-    if not os.getenv("IS_DEV"):
-        webbrowser.open("http://127.0.0.1:8182")
-
-    app.run(host="127.0.0.1", port=8182, debug=True)
+    # Run with HTTPS like the original working script
+    app.run(host="127.0.0.1", port=8182, ssl_context="adhoc", debug=True)
