@@ -3,10 +3,11 @@ from __future__ import annotations
 """
 schwab_api.py – Thin wrapper around Schwab OAuth and option-chain endpoints.
 
-Now supports **two** strategies:
+Now supports **three** strategies:
 
 * Covered-Call   → ``fetch_options_data()``
 * Collar         → ``fetch_collar_data()``
+* Call Spread    → ``fetch_call_spread_data()``
 
 All credential handling remains internal; callers only get filtered JSON-ready
 records or a ``SchwabAPIError`` on failure.
@@ -147,6 +148,232 @@ class SchwabAPI:
                 raise
             except Exception as exc:  # pragma: no cover
                 raise SchwabAPIError(f"Error processing {sym}: {exc}") from exc
+
+        return records, api_calls
+
+    # ------------------------------------------------------------------#
+    # NEW – Call Spread strategy                                        #
+    # ------------------------------------------------------------------#
+
+    def fetch_call_spread_data(
+        self,
+        *,
+        symbols: List[str],
+        min_strike_pct: int,
+        max_strike_pct: int,
+        min_dte: int,
+        max_dte: int,
+        max_spread: int,
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """
+        Return profitable call spread opportunities for the requested symbols.
+        
+        For each symbol, finds vertical call debit spreads where both options
+        are ITM (in the money) and the spread is profitable.
+        """
+        records: List[Dict[str, Any]] = []
+        api_calls = 0
+
+        for sym in symbols:
+            try:
+                recs, calls = self._fetch_stock_call_spread(
+                    symbol=sym,
+                    min_strike_pct=min_strike_pct,
+                    max_strike_pct=max_strike_pct,
+                    min_dte=min_dte,
+                    max_dte=max_dte,
+                    max_spread=max_spread,
+                )
+                records.extend(recs)
+                api_calls += calls
+            except SchwabAPIError:
+                raise
+            except Exception as exc:  # pragma: no cover
+                raise SchwabAPIError(f"Error processing {sym}: {exc}") from exc
+
+        return records, api_calls
+
+    def _fetch_stock_call_spread(
+        self,
+        *,
+        symbol: str,
+        min_strike_pct: int,
+        max_strike_pct: int,
+        min_dte: int,
+        max_dte: int,
+        max_spread: int,
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """Return profitable call spread records for a single underlying."""
+        records: List[Dict[str, Any]] = []
+        api_calls = 0
+
+        # ------------------ 1) Quote -----------------------------------#
+        quote_resp = requests.post(
+            self.QUOTES_URL,
+            headers=self._auth_headers(json_req=True),
+            json={"symbols": [symbol]},
+            timeout=30,
+        )
+        api_calls += 1
+        if quote_resp.status_code != 200:
+            raise SchwabAPIError(
+                f"Quote fetch failed for {symbol}: {quote_resp.status_code}"
+            )
+
+        quote_json = quote_resp.json()
+        if symbol not in quote_json or "quote" not in quote_json[symbol]:
+            raise SchwabAPIError(f"No quote data returned for {symbol}")
+
+        price = quote_json[symbol]["quote"].get("lastPrice") or quote_json[symbol][
+            "quote"
+        ].get("mark")
+        if not price or price <= 0:
+            raise SchwabAPIError(f"Invalid price for {symbol}")
+
+        # Strike boundaries - percentages of current price for ITM strikes
+        # Both strikes should be below current price (ITM)
+        min_strike = price * (min_strike_pct / 100)  # Keep as float
+        max_strike = price * (max_strike_pct / 100)  # Keep as float
+
+        # ------------------ 2) Chains ----------------------------------#
+        today = _dt.date.today()
+        from_date = today + _dt.timedelta(days=min_dte)
+        to_date = today + _dt.timedelta(days=max_dte)
+
+        params = {
+            "symbol": symbol,
+            "contractType": "CALL",
+            "fromDate": from_date.isoformat(),
+            "toDate": to_date.isoformat(),
+        }
+        chain_resp = requests.get(
+            self.CHAINS_URL,
+            params=params,
+            headers=self._auth_headers(json_req=False),
+            timeout=30,
+        )
+        api_calls += 1
+        if chain_resp.status_code != 200:
+            raise SchwabAPIError(
+                f"Chain fetch failed for {symbol}: {chain_resp.status_code}"
+            )
+
+        chain_json = chain_resp.json()
+        call_map = chain_json.get("callExpDateMap", {})
+
+        # Iterate over expirations
+        for exp_key, strike_map in call_map.items():
+            # Get all strikes for this expiration and sort them
+            strikes = [float(s) for s in strike_map.keys()]
+            strikes.sort(reverse=True)  # Sort descending for easier iteration
+            
+            # Filter strikes within our range
+            valid_strikes = [s for s in strikes if min_strike <= s <= max_strike]
+            
+            if len(valid_strikes) < 2:
+                continue  # Need at least 2 strikes for a spread
+                
+            # For each upper strike (higher strike - the one we sell)
+            for i, upper_strike in enumerate(valid_strikes):
+                # Try different string formats for strike lookup
+                upper_strike_str = None
+                for fmt_strike in [str(upper_strike), str(int(upper_strike)), f"{upper_strike:.1f}"]:
+                    if fmt_strike in strike_map:
+                        upper_strike_str = fmt_strike
+                        break
+                
+                if not upper_strike_str or upper_strike_str not in strike_map:
+                    continue
+                    
+                upper_opts = strike_map[upper_strike_str]
+                if not upper_opts:
+                    continue
+                    
+                upper_opt = upper_opts[0]
+                dte = self._calculate_dte(upper_opt["expirationDate"])
+                if dte < min_dte or dte > max_dte:
+                    continue
+                    
+                upper_bid = upper_opt.get("bid", 0)
+                upper_ask = upper_opt.get("ask", 0)
+                if upper_bid <= 0 or upper_ask <= 0 or upper_ask < upper_bid:
+                    continue
+                    
+                upper_mid = (upper_bid + upper_ask) / 2
+                
+                # For each lower strike within max_spread distance
+                for lower_strike in valid_strikes[i+1:]:  # Only consider lower strikes
+                    spread_width = upper_strike - lower_strike
+                    if spread_width > max_spread:
+                        continue  # Spread too wide
+                        
+                    # Try different string formats for lower strike lookup
+                    lower_strike_str = None
+                    for fmt_strike in [str(lower_strike), str(int(lower_strike)), f"{lower_strike:.1f}"]:
+                        if fmt_strike in strike_map:
+                            lower_strike_str = fmt_strike
+                            break
+                    
+                    if not lower_strike_str or lower_strike_str not in strike_map:
+                        continue
+                        
+                    lower_opts = strike_map[lower_strike_str]
+                    if not lower_opts:
+                        continue
+                        
+                    lower_opt = lower_opts[0]
+                    lower_bid = lower_opt.get("bid", 0)
+                    lower_ask = lower_opt.get("ask", 0)
+                    if lower_bid <= 0 or lower_ask <= 0 or lower_ask < lower_bid:
+                        continue
+                        
+                    lower_mid = (lower_bid + lower_ask) / 2
+                    
+                    # Validate that lower strike mid > upper strike mid
+                    if lower_mid <= upper_mid:
+                        continue
+                        
+                    # Calculate spread metrics
+                    paid = (lower_mid - upper_mid) * 100  # Net debit paid
+                    max_gain = (spread_width * 100) - paid  # Max profit
+                    
+                    if max_gain <= 0:
+                        continue  # Only profitable spreads
+                        
+                    pct_gain = (max_gain / paid) * 100 if paid > 0 else 0
+                    ann_pct_gain = (pct_gain * 365) / dte if dte > 0 else 0
+                    
+                    # Calculate strike percentage (upper strike as percentage of current price)
+                    strike_pct = (upper_strike / price) * 100
+                    
+                    exp_ts = int(
+                        _dt.datetime.fromisoformat(upper_opt["expirationDate"]).timestamp()
+                    )
+                    records.append(
+                        {
+                            "symbol": symbol,
+                            "price": price,
+                            "exp": exp_ts,
+                            "expDate": _dt.datetime.fromtimestamp(exp_ts).strftime(
+                                "%d/%m/%Y"
+                            ),
+                            "dte": dte,
+                            "strikePct": strike_pct,
+                            "lowerStrike": lower_strike,
+                            "upperStrike": upper_strike,
+                            "spreadWidth": spread_width,
+                            "lowerBid": lower_bid,
+                            "lowerAsk": lower_ask,
+                            "lowerMid": lower_mid,
+                            "upperBid": upper_bid,
+                            "upperAsk": upper_ask,
+                            "upperMid": upper_mid,
+                            "paid": paid,
+                            "maxGain": max_gain,
+                            "pctGain": pct_gain,
+                            "annPctGain": ann_pct_gain,
+                        }
+                    )
 
         return records, api_calls
 

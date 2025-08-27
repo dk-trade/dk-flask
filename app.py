@@ -9,10 +9,11 @@ import urllib.parse
 """
 app.py – Flask entry-point for the secured local options-strategy helper.
 
-Now supports **two** strategies:
+Now supports **three** strategies:
 
-* Covered-Call  → served at `/covered-call`  | API: `/api/fetch-options`
-* Collar        → served at `/collar`        | API: `/api/fetch-collar`
+* Covered-Call  → served at `/covered-call`    | API: `/api/fetch-options`
+* Collar        → served at `/collar`          | API: `/api/fetch-collar`
+* Call Spread   → served at `/call-spread`     | API: `/api/fetch-call-spread`
 
 `/` shows a landing page where the user can choose the desired strategy.
 All Schwab credentials remain on the server and are loaded from `.env`.
@@ -67,7 +68,7 @@ app = Flask(__name__, static_folder="static", template_folder="templates")
 
 
 def _parse_payload(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Common JSON schema for both strategies; raises `ValueError` on issues."""
+    """Common JSON schema for strategies; raises `ValueError` on issues."""
     required = {"symbols", "minStrikePct", "maxStrikePct", "minDte", "maxDte"}
     if not required.issubset(data):
         raise ValueError(f"Payload must include keys: {sorted(required)}")
@@ -84,13 +85,26 @@ def _parse_payload(data: Dict[str, Any]) -> Dict[str, Any]:
     except (TypeError, ValueError):
         raise ValueError("Strike percentages and DTE values must be integers.")
 
-    return {
+    result = {
         "symbols": symbols,
         "min_strike_pct": min_strike_pct,
         "max_strike_pct": max_strike_pct,
         "min_dte": min_dte,
         "max_dte": max_dte,
     }
+    
+    # Handle max_spread parameter for call spread strategy
+    if "maxSpread" in data:
+        try:
+            result["max_spread"] = int(data["maxSpread"])
+            if result["max_spread"] < 1 or result["max_spread"] > 30:
+                raise ValueError("Max spread must be between 1 and 30.")
+        except (TypeError, ValueError) as e:
+            if "must be between" in str(e):
+                raise e
+            raise ValueError("Max spread must be an integer.")
+    
+    return result
 
 
 # --------------------------------------------------------------------------- #
@@ -121,6 +135,11 @@ def collar_page():
     return render_template("collar.html")
 
 
+@app.route("/call-spread")
+def call_spread_page():
+    return render_template("call_spread.html")
+
+
 # --------------------------------------------------------------------------- #
 # API routes                                                                  #
 # --------------------------------------------------------------------------- #
@@ -145,6 +164,19 @@ def fetch_collar():
     try:
         payload = _parse_payload(request.get_json(force=True))
         records, api_calls = schwab_api.fetch_collar_data(**payload)
+        return jsonify({"records": records, "apiCalls": api_calls})
+    except ValueError as ve:
+        return jsonify({"error": str(ve)}), 400
+    except SchwabAPIError as exc:
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/fetch-call-spread", methods=["POST"])
+def fetch_call_spread():
+    """Call spread strategy endpoint."""
+    try:
+        payload = _parse_payload(request.get_json(force=True))
+        records, api_calls = schwab_api.fetch_call_spread_data(**payload)
         return jsonify({"records": records, "apiCalls": api_calls})
     except ValueError as ve:
         return jsonify({"error": str(ve)}), 400
@@ -313,7 +345,7 @@ def get_new_token():
 
 if __name__ == "__main__":
     # Always open browser (remove IS_DEV check)
-    webbrowser.open("https://127.0.0.1:8182")
+    # webbrowser.open("https://127.0.0.1:8182")
 
     # Run with HTTPS like the original working script
     app.run(host="127.0.0.1", port=8182, ssl_context="adhoc", debug=True)
