@@ -345,7 +345,7 @@ def get_new_token():
 
 if __name__ == "__main__":
     # Always open browser (remove IS_DEV check)
-    # webbrowser.open("https://127.0.0.1:8182")
+    webbrowser.open("https://127.0.0.1:8182")
 
     # Run with HTTPS like the original working script
     app.run(host="127.0.0.1", port=8182, ssl_context="adhoc", debug=True)
