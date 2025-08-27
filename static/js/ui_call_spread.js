@@ -306,40 +306,48 @@
         
         <div class="slider-container">
           <div class="slider-group">
-            <div class="slider-label">BUY CALL Price (Lower Strike)</div>
+            <div class="slider-label">Option Pricing Strategy</div>
             <div class="slider-track">
-              <span class="slider-bounds">Bid</span>
-              <input type="range" id="buyCallSlider" min="0" max="100" value="50" class="modern-slider">
-              <span class="slider-bounds">Ask</span>
-              <span id="buyCallDisplay" class="slider-value">50%</span>
+              <span class="slider-bounds">Conservative<br><small>Buy High / Sell Low</small></span>
+              <input type="range" id="unifiedSlider" min="0" max="50" value="50" class="modern-slider">
+              <span class="slider-bounds">Aggressive<br><small>Buy Low / Sell High</small></span>
+              <span id="unifiedDisplay" class="slider-value">Mid/Mid</span>
             </div>
           </div>
           
-          <div class="slider-group">
-            <div class="slider-label">SELL CALL Price (Upper Strike)</div>
-            <div class="slider-track">
-              <span class="slider-bounds">Bid</span>
-              <input type="range" id="sellCallSlider" min="0" max="100" value="50" class="modern-slider">
-              <span class="slider-bounds">Ask</span>
-              <span id="sellCallDisplay" class="slider-value">50%</span>
-            </div>
+          <div class="pricing-details" style="display: flex; justify-content: space-between; margin-top: 10px; font-size: 12px; color: #6c757d;">
+            <span>BUY CALL: <span id="buyCallPct" style="font-weight: bold;">50%</span></span>
+            <span>SELL CALL: <span id="sellCallPct" style="font-weight: bold;">50%</span></span>
           </div>
         </div>`;
       wrap.style.display = "block";
 
-      const buyCallSlider = document.getElementById("buyCallSlider");
-      const sellCallSlider = document.getElementById("sellCallSlider");
-      const buyCallDisplay = document.getElementById("buyCallDisplay");
-      const sellCallDisplay = document.getElementById("sellCallDisplay");
+      const unifiedSlider = document.getElementById("unifiedSlider");
+      const unifiedDisplay = document.getElementById("unifiedDisplay");
+      const buyCallPctDisplay = document.getElementById("buyCallPct");
+      const sellCallPctDisplay = document.getElementById("sellCallPct");
 
       const recalc = () => {
-        const buyCallPct = +buyCallSlider.value;
-        const sellCallPct = +sellCallSlider.value;
+        const sliderValue = +unifiedSlider.value;
         
-        buyCallDisplay.textContent = `${buyCallPct}%`;
-        sellCallDisplay.textContent = `${sellCallPct}%`;
+        // Convert slider value (0-50) to opposite percentages
+        // When slider = 50 (max): buy = 50%, sell = 50% (mid/mid)
+        // When slider = 40: buy = 60%, sell = 40%
+        // When slider = 0 (min): buy = 100%, sell = 0%
+        const buyCallPct = 100 - sliderValue;
+        const sellCallPct = sliderValue;
+        
+        // Update displays
+        buyCallPctDisplay.textContent = `${buyCallPct}%`;
+        sellCallPctDisplay.textContent = `${sellCallPct}%`;
+        
+        if (sliderValue === 50) {
+          unifiedDisplay.textContent = "Mid/Mid";
+        } else if (sliderValue < 50) {
+          unifiedDisplay.textContent = `${Math.abs(50 - sliderValue)}% Conservative`;
+        }
 
-        // Recalculate prices for all records (no spread filtering here)
+        // Recalculate prices for all records
         const recalculated = rawRecords.map(r => {
           // Lower strike (BUY CALL) - we pay this price
           const lowerPrice = r.lowerBid + (buyCallPct / 100) * (r.lowerAsk - r.lowerBid);
@@ -361,8 +369,7 @@
           `Found ${recalculated.length} profitable call spreads (re-calculated).`;
       };
 
-      buyCallSlider.addEventListener("input", recalc);
-      sellCallSlider.addEventListener("input", recalc);
+      unifiedSlider.addEventListener("input", recalc);
     }
 
     /* -----------------------------------------------------------------
