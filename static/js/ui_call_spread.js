@@ -324,39 +324,23 @@
               <span id="sellCallDisplay" class="slider-value">50%</span>
             </div>
           </div>
-          
-          <div class="slider-group">
-            <div class="slider-label">Max Spread Width</div>
-            <div class="slider-track">
-              <span class="slider-bounds">5</span>
-              <input type="range" id="spreadSlider" min="5" max="30" step="5" value="20" class="modern-slider">
-              <span class="slider-bounds">30</span>
-              <span id="spreadDisplay" class="slider-value">20</span>
-            </div>
-          </div>
         </div>`;
       wrap.style.display = "block";
 
       const buyCallSlider = document.getElementById("buyCallSlider");
       const sellCallSlider = document.getElementById("sellCallSlider");
-      const spreadSlider = document.getElementById("spreadSlider");
       const buyCallDisplay = document.getElementById("buyCallDisplay");
       const sellCallDisplay = document.getElementById("sellCallDisplay");
-      const spreadDisplay = document.getElementById("spreadDisplay");
 
       const recalc = () => {
         const buyCallPct = +buyCallSlider.value;
         const sellCallPct = +sellCallSlider.value;
-        const maxSpread = +spreadSlider.value;
         
         buyCallDisplay.textContent = `${buyCallPct}%`;
         sellCallDisplay.textContent = `${sellCallPct}%`;
-        spreadDisplay.textContent = maxSpread;
 
-        // Filter by max spread first, then recalculate prices
-        const filtered = rawRecords.filter(r => r.spreadWidth <= maxSpread);
-        
-        const recalculated = filtered.map(r => {
+        // Recalculate prices for all records (no spread filtering here)
+        const recalculated = rawRecords.map(r => {
           // Lower strike (BUY CALL) - we pay this price
           const lowerPrice = r.lowerBid + (buyCallPct / 100) * (r.lowerAsk - r.lowerBid);
           // Upper strike (SELL CALL) - we receive this price  
@@ -374,12 +358,11 @@
         resultsUI.render();
 
         document.getElementById("message").textContent =
-          `Found ${recalculated.length} profitable call spreads (filtered and re-calculated).`;
+          `Found ${recalculated.length} profitable call spreads (re-calculated).`;
       };
 
       buyCallSlider.addEventListener("input", recalc);
       sellCallSlider.addEventListener("input", recalc);
-      spreadSlider.addEventListener("input", recalc);
     }
 
     /* -----------------------------------------------------------------
@@ -417,13 +400,19 @@
           return;
         }
 
+        const maxSpread = +document.getElementById("maxSpread").value;
+        if (maxSpread < 1 || maxSpread > 30) {
+          msg.textContent = "Max spread must be between 1 and 30.";
+          return;
+        }
+
         const payload = {
           symbols,
           minStrikePct: +document.getElementById("minStrike").value,
           maxStrikePct: +document.getElementById("maxStrike").value,
           minDte: +document.getElementById("minDte").value || 1,
           maxDte: +document.getElementById("maxDte").value || 365,
-          maxSpread: 30  // Always fetch maximum spreads, filter client-side
+          maxSpread  // Use the actual form value
         };
 
         msg.textContent = `Loading call spread options for ${symbols.length} stock(s)…`;
