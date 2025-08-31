@@ -9,11 +9,12 @@ import urllib.parse
 """
 app.py – Flask entry-point for the secured local options-strategy helper.
 
-Now supports **three** strategies:
+Now supports **four** strategies:
 
 * Covered-Call  → served at `/covered-call`    | API: `/api/fetch-options`
 * Collar        → served at `/collar`          | API: `/api/fetch-collar`
 * Call Spread   → served at `/call-spread`     | API: `/api/fetch-call-spread`
+* Put Spread    → served at `/put-spread`      | API: `/api/fetch-put-spread`
 
 `/` shows a landing page where the user can choose the desired strategy.
 All Schwab credentials remain on the server and are loaded from `.env`.
@@ -140,6 +141,11 @@ def call_spread_page():
     return render_template("call_spread.html")
 
 
+@app.route("/put-spread")
+def put_spread_page():
+    return render_template("put_spread.html")
+
+
 # --------------------------------------------------------------------------- #
 # API routes                                                                  #
 # --------------------------------------------------------------------------- #
@@ -177,6 +183,19 @@ def fetch_call_spread():
     try:
         payload = _parse_payload(request.get_json(force=True))
         records, api_calls = schwab_api.fetch_call_spread_data(**payload)
+        return jsonify({"records": records, "apiCalls": api_calls})
+    except ValueError as ve:
+        return jsonify({"error": str(ve)}), 400
+    except SchwabAPIError as exc:
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/fetch-put-spread", methods=["POST"])
+def fetch_put_spread():
+    """Put spread strategy endpoint."""
+    try:
+        payload = _parse_payload(request.get_json(force=True))
+        records, api_calls = schwab_api.fetch_put_spread_data(**payload)
         return jsonify({"records": records, "apiCalls": api_calls})
     except ValueError as ve:
         return jsonify({"error": str(ve)}), 400

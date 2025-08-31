@@ -1,9 +1,9 @@
-/* ui_call_spread.js
+/* ui_put_spread.js
  *
- * Front-end controller for the Call Spread strategy page.
+ * Front-end controller for the Put Spread strategy page.
  * ------------------------------------------------------------------
  * – Builds dynamic stock inputs and dual-range sliders
- * – Sends filter payload to /api/fetch-call-spread
+ * – Sends filter payload to /api/fetch-put-spread
  * – Renders results via ResultsUI
  * – Lets user tweak option price (0 = Bid … 100 = Ask)
  *   without extra API calls.
@@ -13,7 +13,7 @@
     /* -----------------------------------------------------------------
      * Local state
      * ----------------------------------------------------------------- */
-    const LS_SAVED_STOCKS = "savedStocksCallSpread";
+    const LS_SAVED_STOCKS = "savedStocksPutSpread";
     const savedStocks = JSON.parse(localStorage.getItem(LS_SAVED_STOCKS) || "[]");
 
     // after first fetch we keep full raw records here for re-calculation
@@ -108,7 +108,7 @@
 
     function initializeRangeSliders() {
       initSlider("strike", {
-        min: 0, max: 100, startMin: 30, startMax: 50,
+        min: 0, max: 100, startMin: 70, startMax: 90,
         suffix: "%", minInputId: "minStrike", maxInputId: "maxStrike"
       });
       initSlider("dte", {
@@ -317,16 +317,16 @@
           </div>
           
           <div class="pricing-details" style="display: flex; justify-content: space-between; margin-top: 10px; font-size: 12px; color: #6c757d;">
-            <span>BUY CALL: <span id="buyCallPct" style="font-weight: bold;">50%</span></span>
-            <span>SELL CALL: <span id="sellCallPct" style="font-weight: bold;">50%</span></span>
+            <span>BUY PUT: <span id="buyPutPct" style="font-weight: bold;">50%</span></span>
+            <span>SELL PUT: <span id="sellPutPct" style="font-weight: bold;">50%</span></span>
           </div>
         </div>`;
       wrap.style.display = "block";
 
       const unifiedSlider = document.getElementById("unifiedSlider");
       const unifiedDisplay = document.getElementById("unifiedDisplay");
-      const buyCallPctDisplay = document.getElementById("buyCallPct");
-      const sellCallPctDisplay = document.getElementById("sellCallPct");
+      const buyPutPctDisplay = document.getElementById("buyPutPct");
+      const sellPutPctDisplay = document.getElementById("sellPutPct");
 
       const recalc = () => {
         const sliderValue = +unifiedSlider.value;
@@ -335,12 +335,12 @@
         // When slider = 50 (max): buy = 50%, sell = 50% (mid/mid)
         // When slider = 40: buy = 60%, sell = 40%
         // When slider = 0 (min): buy = 100%, sell = 0%
-        const buyCallPct = 100 - sliderValue;
-        const sellCallPct = sliderValue;
+        const buyPutPct = 100 - sliderValue;
+        const sellPutPct = sliderValue;
         
         // Update displays
-        buyCallPctDisplay.textContent = `${buyCallPct}%`;
-        sellCallPctDisplay.textContent = `${sellCallPct}%`;
+        buyPutPctDisplay.textContent = `${buyPutPct}%`;
+        sellPutPctDisplay.textContent = `${sellPutPct}%`;
         
         if (sliderValue === 50) {
           unifiedDisplay.textContent = "Mid/Mid";
@@ -350,24 +350,25 @@
 
         // Recalculate prices for all records
         const recalculated = rawRecords.map(r => {
-          // Lower strike (BUY CALL) - we pay this price
-          const lowerPrice = r.lowerBid + (buyCallPct / 100) * (r.lowerAsk - r.lowerBid);
-          // Upper strike (SELL CALL) - we receive this price  
-          const upperPrice = r.upperBid + (sellCallPct / 100) * (r.upperAsk - r.upperBid);
+          // Lower strike (BUY PUT) - we pay this price
+          const lowerPrice = r.lowerBid + (buyPutPct / 100) * (r.lowerAsk - r.lowerBid);
+          // Higher strike (SELL PUT) - we receive this price  
+          const higherPrice = r.higherBid + (sellPutPct / 100) * (r.higherAsk - r.higherBid);
           
-          const paid = (lowerPrice - upperPrice) * 100;  // Net debit paid
-          const maxGain = (r.spreadWidth * 100) - paid;  // Max profit
-          const pctGain = paid > 0 ? (maxGain / paid) * 100 : 0;
+          const creditReceived = (higherPrice - lowerPrice) * 100;  // Net credit received
+          const maxRisk = (r.spreadWidth * 100) - creditReceived;   // Max loss
+          const maxGain = creditReceived;                           // Max gain is the credit
+          const pctGain = maxRisk > 0 ? (maxGain / maxRisk) * 100 : 0;
           const annPctGain = r.dte > 0 ? (pctGain * 365) / r.dte : 0;
           
-          return { ...r, paid, maxGain, pctGain, annPctGain };
-        }).filter(x => x.maxGain > 0);
+          return { ...r, creditReceived, maxRisk, maxGain, pctGain, annPctGain };
+        }).filter(x => x.creditReceived > 0);
 
         resultsUI.setRecords(recalculated);
         resultsUI.render();
 
         document.getElementById("message").textContent =
-          `Found ${recalculated.length} profitable call spreads (re-calculated).`;
+          `Found ${recalculated.length} profitable put spreads (re-calculated).`;
       };
 
       unifiedSlider.addEventListener("input", recalc);
@@ -423,12 +424,12 @@
           maxSpread  // Use the actual form value
         };
 
-        msg.textContent = `Loading call spread options for ${symbols.length} stock(s)…`;
+        msg.textContent = `Loading put spread options for ${symbols.length} stock(s)…`;
         resultsUI.setRecords([]);
         resultsUI.render();
 
         try {
-          const res = await fetch("/api/fetch-call-spread", {
+          const res = await fetch("/api/fetch-put-spread", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload)
@@ -441,12 +442,12 @@
           rawRecords = data.records;
 
           if (rawRecords.length === 0) {
-            msg.textContent = "No profitable call spreads found.";
+            msg.textContent = "No profitable put spreads found.";
             return;
           }
 
           msg.textContent =
-            `Found ${rawRecords.length} profitable call spreads. API calls: ${data.apiCalls}`;
+            `Found ${rawRecords.length} profitable put spreads. API calls: ${data.apiCalls}`;
 
           attachSliders();          // show price and spread sliders
           resultsUI.setRecords(rawRecords);
