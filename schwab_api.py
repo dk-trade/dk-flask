@@ -3,12 +3,13 @@ from __future__ import annotations
 """
 schwab_api.py – Thin wrapper around Schwab OAuth and option-chain endpoints.
 
-Now supports **four** strategies:
+Now supports **five** strategies:
 
-* Covered-Call   → ``fetch_options_data()``
-* Collar         → ``fetch_collar_data()``
-* Call Spread    → ``fetch_call_spread_data()``
-* Put Spread     → ``fetch_put_spread_data()``
+* Covered-Call      → ``fetch_options_data()``
+* Collar            → ``fetch_collar_data()``
+* Call Spread       → ``fetch_call_spread_data()``
+* Put Spread        → ``fetch_put_spread_data()``
+* Put-Call-Spread   → ``fetch_put_call_spread_data()``
 
 All credential handling remains internal; callers only get filtered JSON-ready
 records or a ``SchwabAPIError`` on failure.
@@ -605,6 +606,75 @@ class SchwabAPI:
                         }
                     )
 
+        return records, api_calls
+
+    # ------------------------------------------------------------------#
+    # NEW – Put-Call Spread strategy                                    #
+    # ------------------------------------------------------------------#
+
+    def fetch_put_call_spread_data(
+        self,
+        *,
+        symbols: List[str],
+        min_strike_pct: int,
+        max_strike_pct: int,
+        min_dte: int,
+        max_dte: int,
+        max_spread: int,
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """
+        Return profitable put-call spread opportunities for the requested symbols.
+        
+        Combines both call spread and put spread strategies, returning all results
+        from both strategies in a single sorted list.
+        """
+        records: List[Dict[str, Any]] = []
+        api_calls = 0
+
+        for sym in symbols:
+            try:
+                # Fetch call spread data
+                call_recs, call_api_calls = self._fetch_stock_call_spread(
+                    symbol=sym,
+                    min_strike_pct=min_strike_pct,
+                    max_strike_pct=max_strike_pct,
+                    min_dte=min_dte,
+                    max_dte=max_dte,
+                    max_spread=max_spread,
+                )
+                
+                # Add strategy type to call spread records
+                for rec in call_recs:
+                    rec["strategyType"] = "call_spread"
+                
+                records.extend(call_recs)
+                api_calls += call_api_calls
+                
+                # Fetch put spread data
+                put_recs, put_api_calls = self._fetch_stock_put_spread(
+                    symbol=sym,
+                    min_strike_pct=min_strike_pct,
+                    max_strike_pct=max_strike_pct,
+                    min_dte=min_dte,
+                    max_dte=max_dte,
+                    max_spread=max_spread,
+                )
+                
+                # Add strategy type to put spread records
+                for rec in put_recs:
+                    rec["strategyType"] = "put_spread"
+                
+                records.extend(put_recs)
+                api_calls += put_api_calls
+                
+            except SchwabAPIError:
+                raise
+            except Exception as exc:  # pragma: no cover
+                raise SchwabAPIError(f"Error processing {sym}: {exc}") from exc
+
+        # Sort combined results by annualized percentage gain (descending)
+        records.sort(key=lambda x: x.get("annPctGain", 0), reverse=True)
+        
         return records, api_calls
 
     # ------------------------------------------------------------------#
