@@ -106,15 +106,43 @@
       update();
     }
 
-    function initializeRangeSliders() {
+    async function initializeRangeSliders() {
+      let defaultParams = {
+        minStrikePct: 30,
+        maxStrikePct: 90,
+        minDte: 30,
+        maxDte: 90,
+        maxSpread: 20
+      };
+      
+      // Try to load default params from config
+      try {
+        const response = await fetch('/api/config/put-call-spread');
+        if (response.ok) {
+          const config = await response.json();
+          if (config.defaultParams) {
+            defaultParams = config.defaultParams;
+          }
+        }
+      } catch (error) {
+        console.log('Using hardcoded defaults, config not available:', error);
+      }
+      
       initSlider("strike", {
-        min: 0, max: 100, startMin: 30, startMax: 90,
+        min: 0, max: 100, 
+        startMin: defaultParams.minStrikePct, 
+        startMax: defaultParams.maxStrikePct,
         suffix: "%", minInputId: "minStrike", maxInputId: "maxStrike"
       });
       initSlider("dte", {
-        min: 1, max: 800, startMin: 30, startMax: 90,
+        min: 1, max: 800, 
+        startMin: defaultParams.minDte, 
+        startMax: defaultParams.maxDte,
         suffix: " days", minInputId: "minDte", maxInputId: "maxDte"
       });
+      
+      // Set max spread default value
+      document.getElementById("maxSpread").value = defaultParams.maxSpread;
     }
 
     /* -----------------------------------------------------------------
@@ -381,8 +409,8 @@
     /* -----------------------------------------------------------------
      * Form submit → call backend
      * ----------------------------------------------------------------- */
-    document.addEventListener("DOMContentLoaded", () => {
-      initializeRangeSliders();
+    document.addEventListener("DOMContentLoaded", async () => {
+      await initializeRangeSliders();
       createStockSection();
 
       // Load symbol list
@@ -465,4 +493,59 @@
         }
       });
     });
+
+    /* -----------------------------------------------------------------
+     * Batch execution for configured stocks
+     * ----------------------------------------------------------------- */
+    window.runMyStocks = async function() {
+      const msg = document.getElementById("message");
+      
+      try {
+        msg.textContent = "Loading your configured stocks...";
+        resultsUI.setRecords([]);
+        resultsUI.render();
+
+        const response = await fetch("/api/batch-run/put-call-spread", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" }
+        });
+
+        if (!response.ok) {
+          const error = await response.json().catch(() => ({}));
+          throw new Error(error.error || `HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        rawRecords = data.records || [];
+
+        // Display results summary
+        const summary = data.summary;
+        let summaryText = `Processed ${summary.total_stocks} stocks: ${summary.successful} successful, ${summary.failed} failed.`;
+        
+        if (summary.errors && summary.errors.length > 0) {
+          summaryText += ` Errors: ${summary.errors.map(e => e.symbol + ': ' + e.error).join('; ')}`;
+        }
+
+        if (rawRecords.length === 0) {
+          msg.textContent = summaryText + " No profitable opportunities found.";
+          return;
+        }
+
+        const callCount = rawRecords.filter(r => r.strategyType === "call_spread").length;
+        const putCount = rawRecords.filter(r => r.strategyType === "put_spread").length;
+
+        msg.textContent = summaryText + 
+          ` Found ${rawRecords.length} total opportunities: ${callCount} call spreads, ${putCount} put spreads. API calls: ${data.apiCalls}`;
+
+        // Show results with pricing slider
+        attachSliders();
+        resultsUI.setRecords(rawRecords);
+        resultsUI.render();
+
+      } catch (err) {
+        console.error("Batch execution error:", err);
+        msg.textContent = `Error running your stocks: ${err.message}`;
+      }
+    };
+
   })();

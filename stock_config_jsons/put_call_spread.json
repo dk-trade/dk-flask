@@ -1,0 +1,54 @@
+{
+  "defaultParams": {
+    "minStrikePct": 1,
+    "maxStrikePct": 75,
+    "minDte": 49,
+    "maxDte": 91,
+    "maxSpread": 20
+  },
+  "description": "Combined put and call spread opportunities",
+  "lastUpdated": "2025-09-02T16:05:51.356453Z",
+  "name": "My Put-Call Spreads",
+  "stocks": [
+    {
+      "enabled": false,
+      "maxDte": 60,
+      "maxSpread": 15,
+      "maxStrikePct": 49,
+      "minDte": 30,
+      "minStrikePct": 3,
+      "notes": "Conservative approach for stable tech stock",
+      "symbol": "AAPL"
+    },
+    {
+      "enabled": false,
+      "maxDte": 45,
+      "maxSpread": 25,
+      "maxStrikePct": 90,
+      "minDte": 14,
+      "minStrikePct": 30,
+      "notes": "Wider ranges for volatile stock",
+      "symbol": "TSLA"
+    },
+    {
+      "enabled": true,
+      "maxDte": 90,
+      "maxSpread": 10,
+      "maxStrikePct": 70,
+      "minDte": 30,
+      "minStrikePct": 50,
+      "notes": "ETF - smaller spreads",
+      "symbol": "SPY"
+    },
+    {
+      "enabled": false,
+      "maxDte": 91,
+      "maxSpread": 20,
+      "maxStrikePct": 50,
+      "minDte": 30,
+      "minStrikePct": 1,
+      "notes": "",
+      "symbol": "NTFX"
+    }
+  ]
+}

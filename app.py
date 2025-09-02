@@ -21,6 +21,7 @@ Now supports **five** strategies:
 All Schwab credentials remain on the server and are loaded from `.env`.
 """
 import os
+import datetime as _dt
 from pathlib import Path
 from typing import Dict, Any, List
 
@@ -220,6 +221,148 @@ def fetch_put_call_spread():
         return jsonify({"error": str(ve)}), 400
     except SchwabAPIError as exc:
         return jsonify({"error": str(exc)}), 502
+
+
+# --------------------------------------------------------------------------- #
+# Stock Configuration Management                                               #
+# --------------------------------------------------------------------------- #
+
+
+@app.route("/api/config/put-call-spread", methods=["GET"])
+def get_put_call_spread_config():
+    """Get the put-call-spread stock configuration."""
+    try:
+        config_path = Path(__file__).with_name("stock_config_jsons") / "put_call_spread.json"
+        if not config_path.exists():
+            # Return default config if file doesn't exist
+            default_config = {
+                "name": "My Put-Call Spreads",
+                "description": "Combined put and call spread opportunities",
+                "lastUpdated": _dt.datetime.utcnow().isoformat() + "Z",
+                "defaultParams": {
+                    "minStrikePct": 30,
+                    "maxStrikePct": 90,
+                    "minDte": 30,
+                    "maxDte": 90,
+                    "maxSpread": 20
+                },
+                "stocks": []
+            }
+            return jsonify(default_config)
+        
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+        return jsonify(config)
+    except Exception as e:
+        return jsonify({"error": f"Failed to load config: {str(e)}"}), 500
+
+
+@app.route("/api/config/put-call-spread", methods=["POST"])
+def save_put_call_spread_config():
+    """Save the put-call-spread stock configuration."""
+    try:
+        config = request.get_json(force=True)
+        
+        # Validate config structure
+        required_fields = ["name", "defaultParams", "stocks"]
+        if not all(field in config for field in required_fields):
+            return jsonify({"error": "Invalid config structure"}), 400
+            
+        # Validate default params
+        default_params = config["defaultParams"]
+        required_params = ["minStrikePct", "maxStrikePct", "minDte", "maxDte", "maxSpread"]
+        if not all(param in default_params for param in required_params):
+            return jsonify({"error": "Invalid default parameters"}), 400
+            
+        # Update lastUpdated timestamp
+        config["lastUpdated"] = _dt.datetime.utcnow().isoformat() + "Z"
+        
+        # Ensure directory exists
+        config_dir = Path(__file__).with_name("stock_config_jsons")
+        config_dir.mkdir(exist_ok=True)
+        
+        config_path = config_dir / "put_call_spread.json"
+        
+        # Create backup of existing config
+        if config_path.exists():
+            backup_path = config_path.with_suffix('.json.backup')
+            config_path.replace(backup_path)
+            
+        # Save new config
+        with open(config_path, 'w') as f:
+            json.dump(config, f, indent=2)
+            
+        return jsonify({"success": True, "message": "Configuration saved successfully"})
+    except Exception as e:
+        return jsonify({"error": f"Failed to save config: {str(e)}"}), 500
+
+
+@app.route("/api/batch-run/put-call-spread", methods=["POST"])
+def batch_run_put_call_spread():
+    """Execute put-call-spread strategy for all enabled stocks in config."""
+    try:
+        # Load config
+        config_path = Path(__file__).with_name("stock_config_jsons") / "put_call_spread.json"
+        if not config_path.exists():
+            return jsonify({"error": "No configuration file found"}), 404
+            
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+        
+        enabled_stocks = [stock for stock in config["stocks"] if stock.get("enabled", True)]
+        if not enabled_stocks:
+            return jsonify({"error": "No enabled stocks in configuration"}), 400
+            
+        all_records = []
+        total_api_calls = 0
+        results_summary = {
+            "total_stocks": len(enabled_stocks),
+            "successful": 0,
+            "failed": 0,
+            "errors": []
+        }
+        
+        for stock in enabled_stocks:
+            try:
+                # Use stock-specific parameters
+                payload = {
+                    "symbols": [stock["symbol"]],
+                    "min_strike_pct": stock.get("minStrikePct", config["defaultParams"]["minStrikePct"]),
+                    "max_strike_pct": stock.get("maxStrikePct", config["defaultParams"]["maxStrikePct"]), 
+                    "min_dte": stock.get("minDte", config["defaultParams"]["minDte"]),
+                    "max_dte": stock.get("maxDte", config["defaultParams"]["maxDte"]),
+                    "max_spread": stock.get("maxSpread", config["defaultParams"]["maxSpread"])
+                }
+                
+                records, api_calls = schwab_api.fetch_put_call_spread_data(**payload)
+                
+                # Add stock notes to each record
+                for record in records:
+                    if stock.get("notes"):
+                        record["stockNotes"] = stock["notes"]
+                        
+                all_records.extend(records)
+                total_api_calls += api_calls
+                results_summary["successful"] += 1
+                
+            except Exception as e:
+                results_summary["failed"] += 1
+                results_summary["errors"].append({
+                    "symbol": stock["symbol"],
+                    "error": str(e)
+                })
+        
+        # Sort all records by annualized percentage gain
+        all_records.sort(key=lambda x: x.get("annPctGain", 0), reverse=True)
+        
+        return jsonify({
+            "records": all_records,
+            "apiCalls": total_api_calls,
+            "summary": results_summary
+        })
+        
+    except Exception as e:
+        return jsonify({"error": f"Batch execution failed: {str(e)}"}), 500
 
 
 # --------------------------------------------------------------------------- #

@@ -11,6 +11,7 @@
     <!-- put-call spread specific JS bundles -->
     <script src="{{ url_for('static', filename='js/calculator_put_call_spread.js') }}" defer></script>
     <script src="{{ url_for('static', filename='js/results_ui_put_call_spread.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='js/stock_config_manager.js') }}" defer></script>
     <script src="{{ url_for('static', filename='js/ui_put_call_spread.js') }}" defer></script>
 </head>
 
@@ -37,7 +38,7 @@
                         <div class="thumb thumb-min"></div>
                         <div class="thumb thumb-max"></div>
                     </div>
-                    <div class="range-display">30% – 90%</div>
+                    <div class="range-display">Loading...</div>
                 </div>
                 <input type="hidden" id="minStrike" value="30">
                 <input type="hidden" id="maxStrike" value="90">
@@ -54,7 +55,7 @@
                         <div class="thumb thumb-min"></div>
                         <div class="thumb thumb-max"></div>
                     </div>
-                    <div class="range-display">30 – 90 days</div>
+                    <div class="range-display">Loading...</div>
                 </div>
                 <input type="hidden" id="minDte" value="30">
                 <input type="hidden" id="maxDte" value="90">
@@ -70,6 +71,42 @@
 
         <button type="submit" class="submit-btn">Fetch &amp; Calculate</button>
     </form>
+
+    <!-- Stock Configuration Management -->
+    <div style="text-align: center; margin: 20px 0;">
+        <button type="button" onclick="openConfigModal()" class="config-btn" style="
+            background: linear-gradient(45deg, #28a745, #20c997);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-right: 15px;
+            box-shadow: 0 4px 8px rgba(40, 167, 69, 0.3);
+            transition: all 0.3s ease;
+        " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 12px rgba(40, 167, 69, 0.4)';" 
+           onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 8px rgba(40, 167, 69, 0.3)';">
+            📋 Manage My Stocks
+        </button>
+        
+        <button type="button" onclick="runMyStocks()" class="run-stocks-btn" style="
+            background: linear-gradient(45deg, #007bff, #17a2b8);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 4px 8px rgba(0, 123, 255, 0.3);
+            transition: all 0.3s ease;
+        " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 12px rgba(0, 123, 255, 0.4)';" 
+           onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 8px rgba(0, 123, 255, 0.3)';">
+            🚀 Run My Stocks
+        </button>
+    </div>
 
     <div id="message" class="message"></div>
 
