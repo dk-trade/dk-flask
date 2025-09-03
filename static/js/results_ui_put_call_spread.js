@@ -205,7 +205,7 @@
                 if (r.strategyType === "call_spread") {
                   val = fmt(r.paid) + " (Paid)";
                 } else {
-                  val = fmt(r.creditReceived) + " (Credit)";
+                  val = fmt(r.maxRisk) + " (Max Pay)";
                 }
                 break;
               case "strikePct":
