@@ -9,13 +9,14 @@ import urllib.parse
 """
 app.py – Flask entry-point for the secured local options-strategy helper.
 
-Now supports **five** strategies:
+Now supports **six** strategies:
 
 * Covered-Call     → served at `/covered-call`       | API: `/api/fetch-options`
 * Collar           → served at `/collar`             | API: `/api/fetch-collar`
 * Call Spread      → served at `/call-spread`        | API: `/api/fetch-call-spread`
 * Put Spread       → served at `/put-spread`         | API: `/api/fetch-put-spread`
 * Put-Call-Spread  → served at `/put-call-spread`    | API: `/api/fetch-put-call-spread`
+* Iron Condor      → served at `/iron-condor`        | API: `/api/fetch-iron-condor`
 
 `/` shows a landing page where the user can choose the desired strategy.
 All Schwab credentials remain on the server and are loaded from `.env`.
@@ -153,6 +154,11 @@ def put_call_spread_page():
     return render_template("put_call_spread.html")
 
 
+@app.route("/iron-condor")
+def iron_condor_page():
+    return render_template("iron_condor.html")
+
+
 # --------------------------------------------------------------------------- #
 # API routes                                                                  #
 # --------------------------------------------------------------------------- #
@@ -216,6 +222,19 @@ def fetch_put_call_spread():
     try:
         payload = _parse_payload(request.get_json(force=True))
         records, api_calls = schwab_api.fetch_put_call_spread_data(**payload)
+        return jsonify({"records": records, "apiCalls": api_calls})
+    except ValueError as ve:
+        return jsonify({"error": str(ve)}), 400
+    except SchwabAPIError as exc:
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/fetch-iron-condor", methods=["POST"])
+def fetch_iron_condor():
+    """Iron condor strategy endpoint - put credit spread + call credit spread with matching widths."""
+    try:
+        payload = _parse_payload(request.get_json(force=True))
+        records, api_calls = schwab_api.fetch_iron_condor_data(**payload)
         return jsonify({"records": records, "apiCalls": api_calls})
     except ValueError as ve:
         return jsonify({"error": str(ve)}), 400

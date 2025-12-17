@@ -3,13 +3,14 @@ from __future__ import annotations
 """
 schwab_api.py – Thin wrapper around Schwab OAuth and option-chain endpoints.
 
-Now supports **five** strategies:
+Now supports **six** strategies:
 
 * Covered-Call      → ``fetch_options_data()``
 * Collar            → ``fetch_collar_data()``
 * Call Spread       → ``fetch_call_spread_data()``
 * Put Spread        → ``fetch_put_spread_data()``
 * Put-Call-Spread   → ``fetch_put_call_spread_data()``
+* Iron Condor       → ``fetch_iron_condor_data()``
 
 All credential handling remains internal; callers only get filtered JSON-ready
 records or a ``SchwabAPIError`` on failure.
@@ -674,8 +675,358 @@ class SchwabAPI:
 
         # Sort combined results by annualized percentage gain (descending)
         records.sort(key=lambda x: x.get("annPctGain", 0), reverse=True)
-        
+
         return records, api_calls
+
+    # ------------------------------------------------------------------#
+    # NEW – Iron Condor strategy                                        #
+    # ------------------------------------------------------------------#
+
+    def fetch_iron_condor_data(
+        self,
+        *,
+        symbols: List[str],
+        min_strike_pct: int,
+        max_strike_pct: int,
+        min_dte: int,
+        max_dte: int,
+        max_spread: int,
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """
+        Return profitable iron condor opportunities for the requested symbols.
+
+        An Iron Condor combines a put credit spread (below current price) with
+        a call credit spread (above current price) with matching spread widths.
+
+        The strike_pct parameter works symmetrically:
+        - For puts: looks at strikes at (100 - pct)% of current price
+        - For calls: looks at strikes at (100 + (100 - pct))% of current price
+
+        Example: stock at $100, min_strike_pct=70 means:
+        - Put side: 70% of $100 = $70 put
+        - Call side: 130% of $100 = $130 call (mirror of 70%)
+        """
+        records: List[Dict[str, Any]] = []
+        api_calls = 0
+
+        for sym in symbols:
+            try:
+                recs, calls = self._fetch_stock_iron_condor(
+                    symbol=sym,
+                    min_strike_pct=min_strike_pct,
+                    max_strike_pct=max_strike_pct,
+                    min_dte=min_dte,
+                    max_dte=max_dte,
+                    max_spread=max_spread,
+                )
+                records.extend(recs)
+                api_calls += calls
+            except SchwabAPIError:
+                raise
+            except Exception as exc:  # pragma: no cover
+                raise SchwabAPIError(f"Error processing {sym}: {exc}") from exc
+
+        # Sort by annualized percentage gain (descending)
+        records.sort(key=lambda x: x.get("annPctGain", 0), reverse=True)
+
+        return records, api_calls
+
+    def _fetch_stock_iron_condor(
+        self,
+        *,
+        symbol: str,
+        min_strike_pct: int,
+        max_strike_pct: int,
+        min_dte: int,
+        max_dte: int,
+        max_spread: int,
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """Return profitable iron condor records for a single underlying."""
+        records: List[Dict[str, Any]] = []
+        api_calls = 0
+
+        # ------------------ 1) Quote -----------------------------------#
+        quote_resp = requests.post(
+            self.QUOTES_URL,
+            headers=self._auth_headers(json_req=True),
+            json={"symbols": [symbol]},
+            timeout=30,
+        )
+        api_calls += 1
+        if quote_resp.status_code != 200:
+            raise SchwabAPIError(
+                f"Quote fetch failed for {symbol}: {quote_resp.status_code}"
+            )
+
+        quote_json = quote_resp.json()
+        if symbol not in quote_json or "quote" not in quote_json[symbol]:
+            raise SchwabAPIError(f"No quote data returned for {symbol}")
+
+        price = quote_json[symbol]["quote"].get("lastPrice") or quote_json[symbol][
+            "quote"
+        ].get("mark")
+        if not price or price <= 0:
+            raise SchwabAPIError(f"Invalid price for {symbol}")
+
+        # Strike boundaries for PUT side (below current price)
+        # min_strike_pct=70 means look at 70% of current price for puts
+        put_min_strike = price * (min_strike_pct / 100)
+        put_max_strike = price * (max_strike_pct / 100)
+
+        # Strike boundaries for CALL side (above current price - mirror image)
+        # min_strike_pct=70 means look at 130% of current price for calls
+        call_min_strike = price * (2 - max_strike_pct / 100)  # e.g., 2 - 0.9 = 1.1 = 110%
+        call_max_strike = price * (2 - min_strike_pct / 100)  # e.g., 2 - 0.7 = 1.3 = 130%
+
+        # ------------------ 2) Chains (ALL - need both puts and calls) ---#
+        today = _dt.date.today()
+        from_date = today + _dt.timedelta(days=min_dte)
+        to_date = today + _dt.timedelta(days=max_dte)
+
+        params = {
+            "symbol": symbol,
+            "contractType": "ALL",
+            "fromDate": from_date.isoformat(),
+            "toDate": to_date.isoformat(),
+        }
+        chain_resp = requests.get(
+            self.CHAINS_URL,
+            params=params,
+            headers=self._auth_headers(json_req=False),
+            timeout=30,
+        )
+        api_calls += 1
+        if chain_resp.status_code != 200:
+            raise SchwabAPIError(
+                f"Chain fetch failed for {symbol}: {chain_resp.status_code}"
+            )
+
+        chain_json = chain_resp.json()
+        put_map = chain_json.get("putExpDateMap", {})
+        call_map = chain_json.get("callExpDateMap", {})
+
+        # Iterate over expirations present in BOTH maps
+        for exp_key in put_map:
+            if exp_key not in call_map:
+                continue
+
+            put_strike_map = put_map[exp_key]
+            call_strike_map = call_map[exp_key]
+
+            # Get all put strikes within our range
+            put_strikes = [float(s) for s in put_strike_map.keys()]
+            put_strikes.sort()  # ascending
+            valid_put_strikes = [s for s in put_strikes if put_min_strike <= s <= put_max_strike]
+
+            # Get all call strikes within our range
+            call_strikes = [float(s) for s in call_strike_map.keys()]
+            call_strikes.sort()  # ascending
+            valid_call_strikes = [s for s in call_strikes if call_min_strike <= s <= call_max_strike]
+
+            if len(valid_put_strikes) < 2 or len(valid_call_strikes) < 2:
+                continue
+
+            # Build put spreads (credit spreads: sell higher, buy lower)
+            put_spreads = []
+            for i, lower_put in enumerate(valid_put_strikes):
+                lower_put_str = self._find_strike_key(put_strike_map, lower_put)
+                if not lower_put_str:
+                    continue
+
+                lower_put_opts = put_strike_map[lower_put_str]
+                if not lower_put_opts:
+                    continue
+                lower_put_opt = lower_put_opts[0]
+
+                dte = self._calculate_dte(lower_put_opt["expirationDate"])
+                if dte < min_dte or dte > max_dte:
+                    continue
+
+                lower_put_bid = lower_put_opt.get("bid", 0)
+                lower_put_ask = lower_put_opt.get("ask", 0)
+                if lower_put_bid <= 0 or lower_put_ask <= 0:
+                    continue
+
+                for higher_put in valid_put_strikes[i+1:]:
+                    spread_width = higher_put - lower_put
+                    if spread_width > max_spread:
+                        continue
+
+                    higher_put_str = self._find_strike_key(put_strike_map, higher_put)
+                    if not higher_put_str:
+                        continue
+
+                    higher_put_opts = put_strike_map[higher_put_str]
+                    if not higher_put_opts:
+                        continue
+                    higher_put_opt = higher_put_opts[0]
+
+                    higher_put_bid = higher_put_opt.get("bid", 0)
+                    higher_put_ask = higher_put_opt.get("ask", 0)
+                    if higher_put_bid <= 0 or higher_put_ask <= 0:
+                        continue
+
+                    # Credit spread: sell higher, buy lower
+                    if higher_put_bid <= lower_put_ask:
+                        continue  # No credit available
+
+                    put_spreads.append({
+                        "lowerStrike": lower_put,
+                        "higherStrike": higher_put,
+                        "spreadWidth": spread_width,
+                        "lowerBid": lower_put_bid,
+                        "lowerAsk": lower_put_ask,
+                        "higherBid": higher_put_bid,
+                        "higherAsk": higher_put_ask,
+                        "dte": dte,
+                        "expDate": lower_put_opt["expirationDate"],
+                    })
+
+            # Build call spreads (credit spreads: sell lower, buy higher)
+            call_spreads = []
+            for i, lower_call in enumerate(valid_call_strikes):
+                lower_call_str = self._find_strike_key(call_strike_map, lower_call)
+                if not lower_call_str:
+                    continue
+
+                lower_call_opts = call_strike_map[lower_call_str]
+                if not lower_call_opts:
+                    continue
+                lower_call_opt = lower_call_opts[0]
+
+                dte = self._calculate_dte(lower_call_opt["expirationDate"])
+                if dte < min_dte or dte > max_dte:
+                    continue
+
+                lower_call_bid = lower_call_opt.get("bid", 0)
+                lower_call_ask = lower_call_opt.get("ask", 0)
+                if lower_call_bid <= 0 or lower_call_ask <= 0:
+                    continue
+
+                for higher_call in valid_call_strikes[i+1:]:
+                    spread_width = higher_call - lower_call
+                    if spread_width > max_spread:
+                        continue
+
+                    higher_call_str = self._find_strike_key(call_strike_map, higher_call)
+                    if not higher_call_str:
+                        continue
+
+                    higher_call_opts = call_strike_map[higher_call_str]
+                    if not higher_call_opts:
+                        continue
+                    higher_call_opt = higher_call_opts[0]
+
+                    higher_call_bid = higher_call_opt.get("bid", 0)
+                    higher_call_ask = higher_call_opt.get("ask", 0)
+                    if higher_call_bid <= 0 or higher_call_ask <= 0:
+                        continue
+
+                    # Credit spread: sell lower, buy higher
+                    if lower_call_bid <= higher_call_ask:
+                        continue  # No credit available
+
+                    call_spreads.append({
+                        "lowerStrike": lower_call,
+                        "higherStrike": higher_call,
+                        "spreadWidth": spread_width,
+                        "lowerBid": lower_call_bid,
+                        "lowerAsk": lower_call_ask,
+                        "higherBid": higher_call_bid,
+                        "higherAsk": higher_call_ask,
+                        "dte": dte,
+                        "expDate": lower_call_opt["expirationDate"],
+                    })
+
+            # Combine put spreads with call spreads of MATCHING width
+            for put_spread in put_spreads:
+                for call_spread in call_spreads:
+                    # Must have same spread width and same expiration
+                    if put_spread["spreadWidth"] != call_spread["spreadWidth"]:
+                        continue
+                    if put_spread["dte"] != call_spread["dte"]:
+                        continue
+
+                    spread_width = put_spread["spreadWidth"]
+                    dte = put_spread["dte"]
+
+                    # Calculate combined metrics using mid prices
+                    put_lower_mid = (put_spread["lowerBid"] + put_spread["lowerAsk"]) / 2
+                    put_higher_mid = (put_spread["higherBid"] + put_spread["higherAsk"]) / 2
+                    call_lower_mid = (call_spread["lowerBid"] + call_spread["lowerAsk"]) / 2
+                    call_higher_mid = (call_spread["higherBid"] + call_spread["higherAsk"]) / 2
+
+                    # Put credit = sell higher put - buy lower put
+                    put_credit = (put_higher_mid - put_lower_mid) * 100
+                    # Call credit = sell lower call - buy higher call
+                    call_credit = (call_lower_mid - call_higher_mid) * 100
+
+                    total_credit = put_credit + call_credit
+
+                    if total_credit <= 0:
+                        continue  # Only profitable iron condors
+
+                    # Max risk = spread width * 100 - total credit
+                    max_risk = (spread_width * 100) - total_credit
+
+                    if max_risk <= 0:
+                        continue
+
+                    pct_gain = (total_credit / max_risk) * 100
+                    ann_pct_gain = (pct_gain * 365) / dte if dte > 0 else 0
+
+                    # Strike percentages relative to current price
+                    put_strike_pct = (put_spread["higherStrike"] / price) * 100
+                    call_strike_pct = (call_spread["lowerStrike"] / price) * 100
+
+                    exp_ts = int(
+                        _dt.datetime.fromisoformat(put_spread["expDate"]).timestamp()
+                    )
+
+                    records.append({
+                        "symbol": symbol,
+                        "price": price,
+                        "exp": exp_ts,
+                        "expDate": _dt.datetime.fromtimestamp(exp_ts).strftime("%d/%m/%Y"),
+                        "dte": dte,
+                        "spreadWidth": spread_width,
+                        # Put side
+                        "putLowerStrike": put_spread["lowerStrike"],
+                        "putHigherStrike": put_spread["higherStrike"],
+                        "putStrikePct": put_strike_pct,
+                        "putLowerBid": put_spread["lowerBid"],
+                        "putLowerAsk": put_spread["lowerAsk"],
+                        "putLowerMid": put_lower_mid,
+                        "putHigherBid": put_spread["higherBid"],
+                        "putHigherAsk": put_spread["higherAsk"],
+                        "putHigherMid": put_higher_mid,
+                        "putCredit": put_credit,
+                        # Call side
+                        "callLowerStrike": call_spread["lowerStrike"],
+                        "callHigherStrike": call_spread["higherStrike"],
+                        "callStrikePct": call_strike_pct,
+                        "callLowerBid": call_spread["lowerBid"],
+                        "callLowerAsk": call_spread["lowerAsk"],
+                        "callLowerMid": call_lower_mid,
+                        "callHigherBid": call_spread["higherBid"],
+                        "callHigherAsk": call_spread["higherAsk"],
+                        "callHigherMid": call_higher_mid,
+                        "callCredit": call_credit,
+                        # Combined metrics
+                        "totalCredit": total_credit,
+                        "maxRisk": max_risk,
+                        "pctGain": pct_gain,
+                        "annPctGain": ann_pct_gain,
+                    })
+
+        return records, api_calls
+
+    def _find_strike_key(self, strike_map: Dict, strike: float) -> str | None:
+        """Find the correct string key for a strike in the strike map."""
+        for fmt in [str(strike), str(int(strike)), f"{strike:.1f}"]:
+            if fmt in strike_map:
+                return fmt
+        return None
 
     # ------------------------------------------------------------------#
     # Internal helpers – per-symbol collar logic                        #

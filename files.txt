@@ -1,0 +1,146 @@
+# File Documentation for dk-app
+
+## Root Directory
+
+### .env
+Environment configuration file containing Schwab API credentials (app key, app secret, and refresh token).
+Also contains IS_DEV flag for development mode settings.
+
+### app.py
+Main Flask application entry point. Provides web server with HTTPS support and six options trading strategies:
+- Covered Call, Collar, Call Spread, Put Spread, Put-Call Spread, and Iron Condor
+- Handles routing, API endpoints, OAuth token refresh, and stock configuration management
+- Runs on https://127.0.0.1:8182 with auto-browser launch
+
+### schwab_api.py
+Thin wrapper around Schwab OAuth and option-chain APIs. Handles authentication, token management, and data fetching.
+Implements six strategy methods: fetch_options_data (covered call), fetch_collar_data, fetch_call_spread_data,
+fetch_put_spread_data, fetch_put_call_spread_data, and fetch_iron_condor_data. All credentials handled internally.
+
+### stock_symbols_full.json
+JSON array containing a comprehensive list of stock ticker symbols for autocomplete functionality.
+Used by the /api/symbols endpoint to populate symbol selection datalists in the UI.
+
+## static/css/
+
+### style.css
+Main stylesheet with modern CSS reset, custom properties for colors/spacing/typography, and shared styles.
+Implements a design system with primary/gray/success/danger color palettes and responsive layout utilities.
+
+## static/js/
+
+### calculator.js
+Client-side metric calculation helper for covered call strategy. Calculates cost, max profit, percentage return,
+and annualized return based on price, strike, bid/ask, and DTE. No API calls - all calculations local.
+
+### calculator_call_spread.js
+Client-side calculator for call spread (vertical debit spread) strategy. Computes net debit paid, max gain,
+percentage gain, and annualized returns for ITM call spreads with lower and upper strike prices.
+
+### calculator_collar.js
+Client-side calculator for collar strategy metrics. Computes net cost, collar profit, annualized return,
+and strike-to-price percentage for protective put + covered call combinations.
+
+### calculator_put_call_spread.js
+Client-side calculator for combined put-call spread strategy. Handles calculations for both put credit spreads
+and call debit spreads, distinguishing between the two strategy types and their respective profit metrics.
+
+### calculator_put_spread.js
+Client-side calculator for put spread (vertical credit spread) strategy. Computes credit received, max risk,
+max gain, percentage gain, and annualized returns for OTM put spreads.
+
+### calculator_iron_condor.js
+Client-side calculator for iron condor strategy. Computes put credit, call credit, total credit, max risk,
+percentage gain, and annualized returns for combined put + call credit spreads with matching widths.
+
+### results_ui.js
+Results table UI component for covered call strategy. Manages rendering, sorting, filtering, and exporting
+of options data. Includes spinner, error handling, export to CSV/Excel, and responsive table display.
+
+### results_ui_call_spread.js
+Results table UI for call spread strategy. Displays lower/upper strikes, spread width, debit paid, max gain,
+and annualized returns. Includes sorting, filtering, export functionality, and interactive table management.
+
+### results_ui_collar.js
+Results table UI for collar strategy. Shows call/put bid-ask spreads, net cost, collar profit, and annual returns.
+Provides sorting, filtering, CSV/Excel export, and formatted display of monetary values.
+
+### results_ui_put_call_spread.js
+Results table UI for combined put-call spread strategy. Displays both put and call spreads in a unified table
+with strategy type badges, sortable columns, filtering, and export. Handles different field names per strategy type.
+
+### results_ui_put_spread.js
+Results table UI for put spread strategy. Shows lower/higher strikes, credit received, max risk, max gain,
+and annualized returns. Includes sorting, filtering, export to CSV/Excel, and responsive design.
+
+### results_ui_iron_condor.js
+Results table UI for iron condor strategy. Displays combined put and call spreads with put/call strikes,
+credits, total credit, max risk, and annualized returns. Includes sorting, filtering, and responsive design.
+
+### stock_config_manager.js
+Stock configuration management module for put-call-spread strategy. Provides modal-based editor for managing
+stock lists with individual parameters (strike %, DTE, max spread, notes). Handles save/load from backend.
+
+### ui.js
+Main UI controller for covered call page. Manages form interactions, range sliders, dynamic stock inputs,
+saved stocks in localStorage, form submission to Flask backend, and integration with results display.
+
+### ui_call_spread.js
+UI controller for call spread page. Handles form controls, parameter sliders, stock input management,
+form validation, API communication, and results rendering for call spread strategy.
+
+### ui_collar.js
+UI controller for collar page. Manages user inputs for strike percentages and DTE ranges, stock symbol entry,
+localStorage persistence, form submission to /api/fetch-collar, and results display integration.
+
+### ui_put_call_spread.js
+UI controller for put-call spread page. Manages combined strategy interface with config management modal,
+batch processing, individual/batch mode switching, and integration with stock configuration system.
+
+### ui_put_spread.js
+UI controller for put spread page. Handles parameter inputs, range sliders, stock management,
+form validation, API calls to /api/fetch-put-spread, and results rendering for put credit spreads.
+
+### ui_iron_condor.js
+UI controller for iron condor page. Manages unified pricing slider that adjusts both put and call sides
+simultaneously, stock management, form validation, and API calls to /api/fetch-iron-condor.
+
+## stock_config_jsons/
+
+### put_call_spread.json
+Stock configuration file for put-call spread strategy. Contains default parameters, stock list with individual
+settings (min/max strike %, DTE, max spread), enable/disable flags, and notes for each stock symbol.
+
+### put_call_spread.json.backup
+Backup copy of put_call_spread.json created automatically when saving new configurations.
+Preserves previous configuration state for recovery purposes.
+
+## templates/
+
+### call_spread.html
+HTML template for call spread strategy page. Includes form inputs for strike percentages, DTE ranges,
+max spread parameter, stock symbol entry, and results container for displaying call spread opportunities.
+
+### collar.html
+HTML template for collar strategy page. Contains input controls for configuring collar parameters,
+stock selection interface, and results display area for profitable collar combinations.
+
+### covered_call.html
+HTML template for covered call strategy page. Provides form for entering covered call search parameters,
+stock symbols, and displays filtered results matching profitability criteria.
+
+### index.html
+Landing page template with strategy selection cards. Shows six available strategies (Covered Call, Collar,
+Call Spread, Put Spread, Put-Call Spread, Iron Condor) with descriptions and navigation. Includes token refresh interface.
+
+### iron_condor.html
+HTML template for iron condor strategy page. Includes parameter inputs for strike percentages (put side,
+call side mirrors), DTE ranges, max spread width, stock selection, and results table for iron condor opportunities.
+
+### put_call_spread.html
+HTML template for combined put-call spread strategy page. Features config management button, batch run capability,
+individual mode for manual symbol entry, and results display for both put and call spread opportunities.
+
+### put_spread.html
+HTML template for put spread strategy page. Includes parameter inputs for OTM put credit spreads,
+DTE ranges, max spread width, stock selection, and results table for profitable put spread opportunities.

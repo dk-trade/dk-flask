@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Iron Condor Strategy Helper</title>
+
+    <!-- shared styles -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+
+    <!-- iron condor specific JS bundles -->
+    <script src="{{ url_for('static', filename='js/calculator_iron_condor.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='js/results_ui_iron_condor.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='js/ui_iron_condor.js') }}" defer></script>
+</head>
+
+<body style="background: linear-gradient(135deg, rgb(255, 165, 0) 0%, rgb(146, 234, 190) 100%);">
+    <datalist id="symbolList"></datalist>
+
+    <!-- back-link to landing page -->
+    <a href="{{ url_for('root') }}" class="back-link">&#8592; Strategy menu</a>
+
+    <h1 class="title">Iron Condor Strategy Helper</h1>
+
+    <p style="text-align:center;max-width:600px;margin:0 auto 20px;font-size:14px;color:#555;">
+        Combines a <strong>put credit spread</strong> (below current price) with a
+        <strong>call credit spread</strong> (above current price) with matching spread widths.
+    </p>
+
+    <!-- Main form – stock inputs injected by ui_iron_condor.js -->
+    <form id="tradeForm" class="form">
+        <!-- Strike-% range (default 70–90%) -->
+        <div class="form-group range-group">
+            <label>Strike-% (Put side, Call mirrors):</label>
+            <div class="range-container">
+                <div class="range-slider" data-slider="strike">
+                    <div class="range-track">
+                        <div class="range-selected"></div>
+                        <div class="thumb thumb-min"></div>
+                        <div class="thumb thumb-max"></div>
+                    </div>
+                    <div class="range-display">70% – 90%</div>
+                </div>
+                <input type="hidden" id="minStrike" value="70">
+                <input type="hidden" id="maxStrike" value="90">
+            </div>
+            <small style="color:#666;margin-top:5px;display:block;">
+                Put side: 70% = strike at 70% of price. Call side mirrors: 70% → 130% of price.
+            </small>
+        </div>
+
+        <!-- DTE range (default 30–90 days) -->
+        <div class="form-group range-group">
+            <label>DTE Range:</label>
+            <div class="range-container">
+                <div class="range-slider" data-slider="dte">
+                    <div class="range-track">
+                        <div class="range-selected"></div>
+                        <div class="thumb thumb-min"></div>
+                        <div class="thumb thumb-max"></div>
+                    </div>
+                    <div class="range-display">30 – 90 days</div>
+                </div>
+                <input type="hidden" id="minDte" value="30">
+                <input type="hidden" id="maxDte" value="90">
+            </div>
+        </div>
+
+        <!-- Max Spread input -->
+        <div class="form-group">
+            <label for="maxSpread">Max Spread Width:</label>
+            <input type="number" id="maxSpread" min="1" max="30" value="5" required>
+            <span class="input-help">Both put and call spreads use this same width</span>
+        </div>
+
+        <button type="submit" class="submit-btn">Fetch &amp; Calculate</button>
+    </form>
+
+    <div id="message" class="message"></div>
+
+    <!-- price slider injected by JS -->
+    <div id="marketPriceOptions" class="market-price-options" style="display:none;"></div>
+
+    <div id="resultsContainer" class="results-container"></div>
+</body>
+
+</html>

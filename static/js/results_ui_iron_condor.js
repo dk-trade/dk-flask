@@ -1,8 +1,10 @@
-/* results_ui_put_call_spread.js
+/* results_ui_iron_condor.js
  *
- * Renders and sorts the put-call-spread-strategy results table.
- * Handles both call spread and put spread records with different columns.
- * Exposes a global ResultsUI class just like the other strategies.
+ * Renders and sorts the iron-condor-strategy results table.
+ * Exposes a global ResultsUI class just like the other strategies,
+ * so ui_iron_condor.js can initialize it with:
+ *
+ *     const resultsUI = new ResultsUI("resultsContainer");
  */
 
 (() => {
@@ -17,57 +19,28 @@
       });
     }
 
-    // Column definitions for call spreads
-    const CALL_SPREAD_COLS = [
-      { key: "strategyType",  label: "Strategy" },
-      { key: "symbol",        label: "Symbol",           dynamicSkip: true },
-      { key: "price",         label: "Price",            dynamicSkip: true },
-      { key: "expDate",       label: "Expire Date" },
-      { key: "dte",           label: "DTE" },
-      { key: "strikePct",     label: "Strike %" },
-      { key: "lowerStrike",   label: "Lower Strike" },
-      { key: "upperStrike",   label: "Upper Strike" },
-      { key: "spreadWidth",   label: "Spread Width" },
-      { key: "paid",          label: "Paid" },
-      { key: "maxGain",       label: "Max Gain" },
-      { key: "pctGain",       label: "% Gain" },
-      { key: "annPctGain",    label: "Ann. % Gain" }
-    ];
-
-    // Column definitions for put spreads
-    const PUT_SPREAD_COLS = [
-      { key: "strategyType",  label: "Strategy" },
-      { key: "symbol",        label: "Symbol",           dynamicSkip: true },
-      { key: "price",         label: "Price",            dynamicSkip: true },
-      { key: "expDate",       label: "Expire Date" },
-      { key: "dte",           label: "DTE" },
-      { key: "strikePct",     label: "Strike %" },
-      { key: "lowerStrike",   label: "Lower Strike" },
-      { key: "higherStrike",  label: "Higher Strike" },
-      { key: "spreadWidth",   label: "Spread Width" },
-      { key: "creditReceived", label: "Credit Received" },
-      { key: "maxRisk",       label: "Max Risk" },
-      { key: "maxGain",       label: "Max Gain" },
-      { key: "pctGain",       label: "% Gain" },
-      { key: "annPctGain",    label: "Ann. % Gain" }
-    ];
-
-    // Unified columns for mixed display
-    const UNIFIED_COLS = [
-      { key: "strategyType",  label: "Strategy" },
-      { key: "symbol",        label: "Symbol",           dynamicSkip: true },
-      { key: "price",         label: "Price",            dynamicSkip: true },
-      { key: "expDate",       label: "Expire Date" },
-      { key: "dte",           label: "DTE" },
-      { key: "strikePct",     label: "Strike %" },
-      { key: "strikes",       label: "Strikes" },
-      { key: "lowerBid",      label: "Lower Bid" },
-      { key: "upperBid",      label: "Upper Bid" },
-      { key: "spreadWidth",   label: "Spread Width" },
-      { key: "cost",          label: "Cost/Credit" },
-      { key: "maxGain",       label: "Max Gain" },
-      { key: "pctGain",       label: "% Gain" },
-      { key: "annPctGain",    label: "Ann. % Gain" }
+    // Column definitions shared by header builder & row renderer
+    const COLS = [
+      { key: "symbol",           label: "Symbol",            dynamicSkip: true },
+      { key: "price",            label: "Price",             dynamicSkip: true },
+      { key: "expDate",          label: "Expire Date" },
+      { key: "dte",              label: "DTE" },
+      { key: "spreadWidth",      label: "Width" },
+      // Put side
+      { key: "putLowerStrike",   label: "Put Buy" },
+      { key: "putHigherStrike",  label: "Put Sell" },
+      { key: "putStrikePct",     label: "Put %" },
+      { key: "putCredit",        label: "Put Credit" },
+      // Call side
+      { key: "callLowerStrike",  label: "Call Sell" },
+      { key: "callHigherStrike", label: "Call Buy" },
+      { key: "callStrikePct",    label: "Call %" },
+      { key: "callCredit",       label: "Call Credit" },
+      // Combined
+      { key: "totalCredit",      label: "Total Credit" },
+      { key: "maxRisk",          label: "Max Risk" },
+      { key: "pctGain",          label: "% Gain" },
+      { key: "annPctGain",       label: "Ann. % Gain" }
     ];
 
     /* --------------------------------------------------------------
@@ -84,7 +57,7 @@
           aVal = parseFloat(aVal);
           bVal = parseFloat(bVal);
         }
-        if (column === "symbol" || column === "expDate" || column === "strategyType") {
+        if (column === "symbol" || column === "expDate") {
           aVal = aVal.toString();
           bVal = bVal.toString();
         }
@@ -144,23 +117,9 @@
           this.container.appendChild(info);
         }
 
-        // Apply 300-row limit
-        const totalRows = rows.length;
-        const displayedRows = rows.slice(0, 300);
-        
-        // Strategy type summary for displayed rows
-        const callCount = displayedRows.filter(r => r.strategyType === "call_spread").length;
-        const putCount = displayedRows.filter(r => r.strategyType === "put_spread").length;
-        
         const summary = document.createElement("p");
-        const limitText = totalRows > 300 ? ` (displaying first 300)` : ``;
-        summary.innerHTML = `Showing ${displayedRows.length} total opportunities${limitText}: 
-          <span style="color: #28a745; font-weight: bold;">${callCount} call spreads</span>, 
-          <span style="color: #ffc107; font-weight: bold;">${putCount} put spreads</span>`;
+        summary.textContent = `Showing ${rows.length} profitable iron condor opportunities.`;
         this.container.appendChild(summary);
-        
-        // Use displayedRows for rendering
-        rows = displayedRows;
 
         const tblWrap = document.createElement("div");
         tblWrap.className = "table-scroll-container";
@@ -173,54 +132,29 @@
 
         rows.forEach(r => {
           const tr = document.createElement("tr");
-          // Add strategy-specific styling
-          if (r.strategyType === "call_spread") {
-            tr.style.borderLeft = "4px solid #28a745";
-          } else if (r.strategyType === "put_spread") {
-            tr.style.borderLeft = "4px solid #ffc107";
-          }
-          
           const cells = [];
 
-          UNIFIED_COLS.forEach(col => {
+          COLS.forEach(col => {
             if (col.dynamicSkip && isSingle) return;
 
             let val;
             switch (col.key) {
-              case "strategyType":
-                val = r[col.key] === "call_spread" ? "Call Spread" : "Put Spread";
-                break;
               case "price":
+              case "putLowerStrike":
+              case "putHigherStrike":
+              case "callLowerStrike":
+              case "callHigherStrike":
+              case "putCredit":
+              case "callCredit":
+              case "totalCredit":
+              case "maxRisk":
                 val = fmt(r[col.key]);
-                break;
-              case "strikes":
-                if (r.strategyType === "call_spread") {
-                  val = `${r.lowerStrike} / ${r.upperStrike}`;
-                } else {
-                  val = `${r.lowerStrike} / ${r.higherStrike}`;
-                }
-                break;
-              case "lowerBid":
-                val = fmt(r.lowerBid);
-                break;
-              case "upperBid":
-                if (r.strategyType === "call_spread") {
-                  val = fmt(r.upperBid);
-                } else {
-                  val = fmt(r.higherBid);
-                }
                 break;
               case "spreadWidth":
-                val = fmt(r[col.key]);
+                val = r[col.key];
                 break;
-              case "cost":
-                if (r.strategyType === "call_spread") {
-                  val = fmt(r.paid) + " (Paid)";
-                } else {
-                  val = fmt(r.maxRisk) + " (Max Pay)";
-                }
-                break;
-              case "strikePct":
+              case "putStrikePct":
+              case "callStrikePct":
                 val = r[col.key].toFixed(1) + "%";
                 break;
               case "pctGain":
@@ -228,9 +162,6 @@
                 break;
               case "annPctGain":
                 val = fmt(r[col.key]) + "%";
-                break;
-              case "maxGain":
-                val = fmt(r[col.key]);
                 break;
               default:
                 val = r[col.key];
@@ -251,7 +182,7 @@
         const thead = document.createElement("thead");
         const tr = document.createElement("tr");
 
-        UNIFIED_COLS.forEach(col => {
+        COLS.forEach(col => {
           if (col.dynamicSkip && isSingle) return;
           const th = document.createElement("th");
           th.className = "sortable";
