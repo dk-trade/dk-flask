@@ -844,6 +844,8 @@ class SchwabAPI:
 
                 lower_put_bid = lower_put_opt.get("bid", 0)
                 lower_put_ask = lower_put_opt.get("ask", 0)
+
+                # Filter: skip if lower put has no bid/ask (no liquidity)
                 if lower_put_bid <= 0 or lower_put_ask <= 0:
                     continue
 
@@ -863,12 +865,10 @@ class SchwabAPI:
 
                     higher_put_bid = higher_put_opt.get("bid", 0)
                     higher_put_ask = higher_put_opt.get("ask", 0)
+
+                    # Filter: skip if higher put has no bid/ask (no liquidity)
                     if higher_put_bid <= 0 or higher_put_ask <= 0:
                         continue
-
-                    # Credit spread: sell higher, buy lower
-                    if higher_put_bid <= lower_put_ask:
-                        continue  # No credit available
 
                     put_spreads.append({
                         "lowerStrike": lower_put,
@@ -900,6 +900,8 @@ class SchwabAPI:
 
                 lower_call_bid = lower_call_opt.get("bid", 0)
                 lower_call_ask = lower_call_opt.get("ask", 0)
+
+                # Filter: skip if lower call has no bid/ask (no liquidity)
                 if lower_call_bid <= 0 or lower_call_ask <= 0:
                     continue
 
@@ -919,12 +921,10 @@ class SchwabAPI:
 
                     higher_call_bid = higher_call_opt.get("bid", 0)
                     higher_call_ask = higher_call_opt.get("ask", 0)
+
+                    # Filter: skip if higher call has no bid/ask (no liquidity)
                     if higher_call_bid <= 0 or higher_call_ask <= 0:
                         continue
-
-                    # Credit spread: sell lower, buy higher
-                    if lower_call_bid <= higher_call_ask:
-                        continue  # No credit available
 
                     call_spreads.append({
                         "lowerStrike": lower_call,
