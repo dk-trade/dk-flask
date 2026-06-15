@@ -92,6 +92,11 @@
             <p>Put credit spread + call credit spread with matching widths – collect premium from both sides while defining max risk.</p>
         </a>
 
+        <a class="strategy-card" href="{{ url_for('call_credit_spread_page') }}" style="background: linear-gradient(135deg, rgba(100, 149, 237, 0.15) 0%, rgba(65, 105, 225, 0.15) 100%); border-color: #4169e1;">
+            <h2>OTM Call Credit Spread</h2>
+            <p>Sell lower call, buy higher call (both OTM) – collect credit while betting the stock stays below the lower strike.</p>
+        </a>
+
         <div class="token-refresh-section" style="margin-top: 40px; padding-top: 30px; border-top: 2px solid #ddd;">
             <div style="text-align: center;">
                 <button id="refreshTokenBtn" class="refresh-token-btn"

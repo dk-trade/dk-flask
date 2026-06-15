@@ -9,14 +9,15 @@ import urllib.parse
 """
 app.py – Flask entry-point for the secured local options-strategy helper.
 
-Now supports **six** strategies:
+Now supports **seven** strategies:
 
-* Covered-Call     → served at `/covered-call`       | API: `/api/fetch-options`
-* Collar           → served at `/collar`             | API: `/api/fetch-collar`
-* Call Spread      → served at `/call-spread`        | API: `/api/fetch-call-spread`
-* Put Spread       → served at `/put-spread`         | API: `/api/fetch-put-spread`
-* Put-Call-Spread  → served at `/put-call-spread`    | API: `/api/fetch-put-call-spread`
-* Iron Condor      → served at `/iron-condor`        | API: `/api/fetch-iron-condor`
+* Covered-Call           → served at `/covered-call`           | API: `/api/fetch-options`
+* Collar                 → served at `/collar`                 | API: `/api/fetch-collar`
+* Call Spread            → served at `/call-spread`            | API: `/api/fetch-call-spread`
+* Put Spread             → served at `/put-spread`             | API: `/api/fetch-put-spread`
+* Put-Call-Spread        → served at `/put-call-spread`        | API: `/api/fetch-put-call-spread`
+* Iron Condor            → served at `/iron-condor`            | API: `/api/fetch-iron-condor`
+* OTM Call Credit Spread → served at `/call-credit-spread`     | API: `/api/fetch-call-credit-spread`
 
 `/` shows a landing page where the user can choose the desired strategy.
 All Schwab credentials remain on the server and are loaded from `.env`.
@@ -159,6 +160,11 @@ def iron_condor_page():
     return render_template("iron_condor.html")
 
 
+@app.route("/call-credit-spread")
+def call_credit_spread_page():
+    return render_template("call_credit_spread.html")
+
+
 # --------------------------------------------------------------------------- #
 # API routes                                                                  #
 # --------------------------------------------------------------------------- #
@@ -235,6 +241,19 @@ def fetch_iron_condor():
     try:
         payload = _parse_payload(request.get_json(force=True))
         records, api_calls = schwab_api.fetch_iron_condor_data(**payload)
+        return jsonify({"records": records, "apiCalls": api_calls})
+    except ValueError as ve:
+        return jsonify({"error": str(ve)}), 400
+    except SchwabAPIError as exc:
+        return jsonify({"error": str(exc)}), 502
+
+
+@app.route("/api/fetch-call-credit-spread", methods=["POST"])
+def fetch_call_credit_spread():
+    """OTM Call Credit Spread strategy endpoint - sell lower call, buy higher call (both OTM)."""
+    try:
+        payload = _parse_payload(request.get_json(force=True))
+        records, api_calls = schwab_api.fetch_call_credit_spread_data(**payload)
         return jsonify({"records": records, "apiCalls": api_calls})
     except ValueError as ve:
         return jsonify({"error": str(ve)}), 400
