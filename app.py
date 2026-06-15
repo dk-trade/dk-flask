@@ -108,7 +108,18 @@ def _parse_payload(data: Dict[str, Any]) -> Dict[str, Any]:
             if "must be between" in str(e):
                 raise e
             raise ValueError("Max spread must be an integer.")
-    
+
+    # Handle min_bid parameter for filtering illiquid options
+    if "minBid" in data:
+        try:
+            result["min_bid"] = float(data["minBid"])
+            if result["min_bid"] < 0:
+                raise ValueError("Min bid must be non-negative.")
+        except (TypeError, ValueError) as e:
+            if "must be" in str(e):
+                raise e
+            raise ValueError("Min bid must be a number.")
+
     return result
 
 

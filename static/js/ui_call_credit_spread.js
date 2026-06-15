@@ -417,13 +417,20 @@
           return;
         }
 
+        const minBid = +document.getElementById("minBid").value;
+        if (minBid < 0) {
+          msg.textContent = "Min bid must be non-negative.";
+          return;
+        }
+
         const payload = {
           symbols,
           minStrikePct: +document.getElementById("minStrike").value,
           maxStrikePct: +document.getElementById("maxStrike").value,
           minDte: +document.getElementById("minDte").value || 1,
           maxDte: +document.getElementById("maxDte").value || 365,
-          maxSpread
+          maxSpread,
+          minBid
         };
 
         msg.textContent = `Loading OTM call credit spread options for ${symbols.length} stock(s)...`;

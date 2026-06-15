@@ -1042,6 +1042,7 @@ class SchwabAPI:
         min_dte: int,
         max_dte: int,
         max_spread: int,
+        min_bid: float = 2.0,
     ) -> Tuple[List[Dict[str, Any]], int]:
         """
         Return profitable OTM call credit spread opportunities for the requested symbols.
@@ -1051,6 +1052,9 @@ class SchwabAPI:
 
         Strategy: SELL lower strike call (closer to ATM), BUY higher strike call (further OTM)
         Profit when stock stays below the lower strike at expiration.
+
+        Args:
+            min_bid: Minimum bid price for both legs (filters out illiquid options). Default 2.0.
         """
         records: List[Dict[str, Any]] = []
         api_calls = 0
@@ -1064,6 +1068,7 @@ class SchwabAPI:
                     min_dte=min_dte,
                     max_dte=max_dte,
                     max_spread=max_spread,
+                    min_bid=min_bid,
                 )
                 records.extend(recs)
                 api_calls += calls
@@ -1083,6 +1088,7 @@ class SchwabAPI:
         min_dte: int,
         max_dte: int,
         max_spread: int,
+        min_bid: float = 2.0,
     ) -> Tuple[List[Dict[str, Any]], int]:
         """Return profitable OTM call credit spread records for a single underlying."""
         records: List[Dict[str, Any]] = []
@@ -1173,7 +1179,7 @@ class SchwabAPI:
 
                 lower_bid = lower_opt.get("bid", 0)
                 lower_ask = lower_opt.get("ask", 0)
-                if lower_bid <= 0 or lower_ask <= 0 or lower_ask < lower_bid:
+                if lower_bid < min_bid or lower_ask <= 0 or lower_ask < lower_bid:
                     continue
 
                 lower_mid = (lower_bid + lower_ask) / 2
@@ -1195,7 +1201,7 @@ class SchwabAPI:
                     higher_opt = higher_opts[0]
                     higher_bid = higher_opt.get("bid", 0)
                     higher_ask = higher_opt.get("ask", 0)
-                    if higher_bid <= 0 or higher_ask <= 0 or higher_ask < higher_bid:
+                    if higher_bid < min_bid or higher_ask <= 0 or higher_ask < higher_bid:
                         continue
 
                     higher_mid = (higher_bid + higher_ask) / 2
